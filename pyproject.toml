@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wbpriceanalyzer"
+dynamic = ["version"]
+description = "Локальный анализатор отчетов Wildberries с историей и сценариями цены"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["openpyxl>=3.1,<4"]
+
+[project.scripts]
+wbpriceanalyzer = "wb_app.ui:run_app"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["wb_app*"]
+
+[tool.setuptools.package-data]
+wb_app = ["resources/*.json", "resources/*.xlsx"]
+
+[tool.setuptools.dynamic]
+version = {attr = "wb_app.__version__"}
