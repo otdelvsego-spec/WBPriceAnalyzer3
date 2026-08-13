@@ -84,6 +84,7 @@ class WBPriceAnalyzerApp(tk.Tk):
         self.import_in_progress = False
         self.import_queue: queue.Queue[tuple[ImportBatch | None, Exception | None]] = queue.Queue()
         self.colors = apply_theme(self, self.db.get_setting("theme", "system"))
+        self.resizable_panes: list[tk.PanedWindow] = []
 
         self.title(f"{APP_TITLE} {APP_VERSION}")
         self.geometry("1540x920")
@@ -163,9 +164,12 @@ class WBPriceAnalyzerApp(tk.Tk):
         )
 
     def _build_overview_tab(self) -> None:
-        self.overview_tab.columnconfigure(0, weight=1)
-        self.overview_tab.rowconfigure(3, weight=1)
-        overview_header = ttk.Frame(self.overview_tab)
+        overview_upper, overview_table = self._create_resizable_table_layout(
+            self.overview_tab,
+            upper_minsize=250,
+        )
+        overview_upper.rowconfigure(3, weight=0)
+        overview_header = ttk.Frame(overview_upper)
         overview_header.grid(row=0, column=0, sticky="ew", pady=(10, 8))
         overview_header.columnconfigure(1, weight=1)
         ttk.Label(overview_header, text="Итоговый отчет", style="Section.TLabel").grid(
@@ -188,7 +192,7 @@ class WBPriceAnalyzerApp(tk.Tk):
             text="Только текущий",
             command=self.use_current_report_in_overview,
         ).grid(row=0, column=3)
-        self.kpi_frame = ttk.Frame(self.overview_tab)
+        self.kpi_frame = ttk.Frame(overview_upper)
         self.kpi_frame.grid(row=1, column=0, sticky="ew", pady=(0, 12))
         for column in range(6):
             self.kpi_frame.columnconfigure(column, weight=1)
@@ -252,7 +256,7 @@ class WBPriceAnalyzerApp(tk.Tk):
                 row=1, column=0, sticky="w", pady=(4, 0)
             )
 
-        filters = ttk.Frame(self.overview_tab)
+        filters = ttk.Frame(overview_upper)
         filters.grid(row=2, column=0, sticky="ew", pady=(0, 10))
         filters.columnconfigure(10, weight=1)
         ttk.Label(filters, text="Категория:").grid(row=0, column=0, padx=(0, 6))
@@ -308,7 +312,7 @@ class WBPriceAnalyzerApp(tk.Tk):
             "Прочие денежные операции", "Возмещение перевозчика (нейтрально)", "Финрезультат WB",
         ]
         self.overview_tree = self._create_tree(
-            self.overview_tab, columns, headings, row=3, widths=[120, 230, 190] + [125] * 31
+            overview_table, columns, headings, row=0, widths=[120, 230, 190] + [125] * 31
         )
 
     def _build_sources_tab(self) -> None:
@@ -408,18 +412,20 @@ class WBPriceAnalyzerApp(tk.Tk):
         )
 
     def _build_scenario_tab(self) -> None:
-        self.scenario_tab.columnconfigure(0, weight=1)
-        self.scenario_tab.rowconfigure(4, weight=1)
-        ttk.Label(self.scenario_tab, text="Доходность при плановой цене", style="Section.TLabel").grid(
+        scenario_upper, scenario_table = self._create_resizable_table_layout(
+            self.scenario_tab,
+            upper_minsize=220,
+        )
+        ttk.Label(scenario_upper, text="Доходность при плановой цене", style="Section.TLabel").grid(
             row=0, column=0, sticky="w", pady=(10, 2)
         )
         ttk.Label(
-            self.scenario_tab,
+            scenario_upper,
             text="Объем продаж остается текущим. Доля перечисления продавцу берется из выбранного периода, а логистика и другие фиксированные затраты сохраняются.",
             style="Muted.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(0, 10))
 
-        scenario_top = ttk.Frame(self.scenario_tab)
+        scenario_top = ttk.Frame(scenario_upper)
         scenario_top.grid(row=2, column=0, sticky="ew", pady=(0, 10))
         scenario_top.columnconfigure(6, weight=1)
         ttk.Label(scenario_top, text="Плановая цена выбранного товара:").grid(row=0, column=0, padx=(0, 6))
@@ -439,7 +445,7 @@ class WBPriceAnalyzerApp(tk.Tk):
         )
         ttk.Button(scenario_top, text="Сбросить цены", command=self.reset_scenario).grid(row=0, column=7, padx=(12, 0))
 
-        filters = ttk.Frame(self.scenario_tab)
+        filters = ttk.Frame(scenario_upper)
         filters.grid(row=3, column=0, sticky="ew", pady=(0, 10))
         filters.columnconfigure(10, weight=1)
         ttk.Label(filters, text="Категория:").grid(row=0, column=0, padx=(0, 6))
@@ -478,16 +484,16 @@ class WBPriceAnalyzerApp(tk.Tk):
         )
 
         self.scenario_tree = self._create_tree(
-            self.scenario_tab,
+            scenario_table,
             ["article", "name", "category", "cost", "units", "current_price", "planned_price", "change", "profitability", "other_costs", "planned_revenue", "commission_rate", "commission", "points", "taxable", "tax", "profit", "profit_unit", "net_unit", "net_total"],
             ["Артикул", "Наименование", "Категория", "Себестоимость", "Продажи", "Текущая цена", "Плановая цена", "Изменение", "Доходность", "Постоянные расходы WB", "Плановая выручка", "Доля к перечислению", "Плановое перечисление", "Прочие изменения", "Налоговая база", "Налог", "Прибыль до с/с", "Прибыль/ед. до с/с", "Чистая прибыль/ед.", "Чистая прибыль всего"],
-            row=4,
+            row=0,
             widths=[120, 230, 190] + [135] * 17,
         )
         self.scenario_tree.bind("<<TreeviewSelect>>", self._on_scenario_selected)
 
-        self.scenario_kpi_frame = ttk.Frame(self.scenario_tab)
-        self.scenario_kpi_frame.grid(row=5, column=0, sticky="ew", pady=(10, 0))
+        self.scenario_kpi_frame = ttk.Frame(scenario_upper)
+        self.scenario_kpi_frame.grid(row=4, column=0, sticky="ew", pady=(0, 10))
         for column in range(4):
             self.scenario_kpi_frame.columnconfigure(column, weight=1)
         self.scenario_kpi_vars: dict[str, tk.StringVar] = {}
@@ -659,12 +665,14 @@ class WBPriceAnalyzerApp(tk.Tk):
         )
 
     def _build_settings_tab(self) -> None:
-        self.settings_tab.columnconfigure(0, weight=1)
-        self.settings_tab.rowconfigure(3, weight=1)
-        ttk.Label(self.settings_tab, text="Настройки приложения", style="Section.TLabel").grid(
+        settings_upper, settings_table = self._create_resizable_table_layout(
+            self.settings_tab,
+            upper_minsize=255,
+        )
+        ttk.Label(settings_upper, text="Настройки приложения", style="Section.TLabel").grid(
             row=0, column=0, sticky="w", pady=(10, 8)
         )
-        settings = ttk.Frame(self.settings_tab)
+        settings = ttk.Frame(settings_upper)
         settings.grid(row=1, column=0, sticky="ew", pady=(0, 12))
         settings.columnconfigure(1, weight=1)
         settings.columnconfigure(3, weight=1)
@@ -744,7 +752,7 @@ class WBPriceAnalyzerApp(tk.Tk):
             command=self.recalculate_saved_history,
         ).grid(row=0, column=2, padx=4)
 
-        product_header = ttk.Frame(self.settings_tab)
+        product_header = ttk.Frame(settings_upper)
         product_header.grid(row=2, column=0, sticky="ew", pady=(6, 8))
         product_header.columnconfigure(0, weight=1)
         ttk.Label(product_header, text="Товары и себестоимость", style="Section.TLabel").grid(row=0, column=0, sticky="w")
@@ -764,8 +772,23 @@ class WBPriceAnalyzerApp(tk.Tk):
             style="Muted.TLabel",
         ).grid(row=1, column=0, columnspan=6, sticky="w", pady=(4, 8))
 
+        self.cost_catalog_warning_frame = ttk.Frame(product_header)
+        self.cost_catalog_warning_frame.grid(row=2, column=0, columnspan=6, sticky="ew", pady=(0, 8))
+        self.cost_catalog_warning_frame.columnconfigure(0, weight=1)
+        self.cost_catalog_warning_var = tk.StringVar()
+        ttk.Label(
+            self.cost_catalog_warning_frame,
+            textvariable=self.cost_catalog_warning_var,
+            style="Warning.TLabel",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Button(
+            self.cost_catalog_warning_frame,
+            text="Показать пропущенные строки",
+            command=self.show_cost_catalog_warnings,
+        ).grid(row=0, column=1, padx=(12, 0))
+
         filters = ttk.Frame(product_header)
-        filters.grid(row=2, column=0, columnspan=6, sticky="ew")
+        filters.grid(row=3, column=0, columnspan=6, sticky="ew")
         filters.columnconfigure(5, weight=1)
         ttk.Label(filters, text="Поиск:").grid(row=0, column=0, padx=(0, 6))
         self.product_search_var = tk.StringVar()
@@ -793,13 +816,14 @@ class WBPriceAnalyzerApp(tk.Tk):
             row=0, column=8, padx=(12, 4)
         )
         self.products_tree = self._create_tree(
-            self.settings_tab,
+            settings_table,
             ["article", "name", "category", "total", "material", "labor", "status"],
             ["Артикул", "Наименование", "Категория", "Полная себестоимость", "Материал", "Трудозатраты", "Статус"],
-            row=3,
+            row=0,
             widths=[150, 320, 220, 180, 150, 150, 110],
         )
         self.products_tree.bind("<Double-1>", lambda _event: self.edit_product())
+        self._refresh_cost_catalog_warning()
 
     def _create_tree(
         self,
@@ -826,6 +850,54 @@ class WBPriceAnalyzerApp(tk.Tk):
             tree.heading(column, text=heading)
             tree.column(column, width=width, minwidth=70, stretch=False, anchor="w" if column in {"article", "name", "type", "category", "message"} else "e")
         return tree
+
+    def _create_resizable_table_layout(
+        self,
+        tab: ttk.Frame,
+        *,
+        upper_minsize: int,
+        table_minsize: int = 150,
+    ) -> tuple[ttk.Frame, ttk.Frame]:
+        """Create a vertically resizable controls/table layout for a tab."""
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(0, weight=1)
+        pane = tk.PanedWindow(
+            tab,
+            orient=tk.VERTICAL,
+            borderwidth=0,
+            relief=tk.FLAT,
+            background=self.colors["window"],
+            sashrelief=tk.FLAT,
+            sashwidth=8,
+            sashpad=3,
+            showhandle=True,
+            handlesize=12,
+            handlepad=4,
+            opaqueresize=True,
+        )
+        pane.grid(row=0, column=0, sticky="nsew")
+        upper = ttk.Frame(pane)
+        table = ttk.Frame(pane)
+        upper.columnconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
+        table.rowconfigure(0, weight=1)
+        pane.add(upper, minsize=upper_minsize, stretch="never")
+        pane.add(table, minsize=table_minsize, stretch="always")
+        self.resizable_panes.append(pane)
+
+        def set_initial_position() -> None:
+            if not pane.winfo_exists():
+                return
+            available = pane.winfo_height() - table_minsize - 12
+            requested = max(upper_minsize, upper.winfo_reqheight())
+            pane.sash_place(0, 0, max(upper_minsize, min(requested, available)))
+
+        self.after_idle(set_initial_position)
+        return upper, table
+
+    def _restyle_resizable_panes(self) -> None:
+        for pane in self.resizable_panes:
+            pane.configure(background=self.colors["window"])
 
     def refresh_all(self) -> None:
         self.refresh_products()
@@ -945,7 +1017,13 @@ class WBPriceAnalyzerApp(tk.Tk):
         cost = totals["cost_sold"]
         self.kpi_vars["revenue"].set(_money(totals["revenue"]))
         self.kpi_vars["net_profit"].set(_money(totals["net_profit"]))
-        self.kpi_vars["profitability"].set(_percent(totals["net_profit"] / cost if cost else 0))
+        self.kpi_vars["profitability"].set(
+            _profitability_text(
+                totals["net_profit"] / cost if cost else None,
+                units=totals["units"],
+                cost_sold=cost,
+            )
+        )
         self.kpi_vars["units"].set(_number(totals["units"]))
         self.kpi_vars["unallocated"].set(_money(totals["unallocated"]))
         self.kpi_vars["files"].set(str(self.overview_file_count))
@@ -968,7 +1046,13 @@ class WBPriceAnalyzerApp(tk.Tk):
         )
         self.category_kpi_vars["revenue"].set(_money(category_totals["revenue"]))
         self.category_kpi_vars["net_profit"].set(_money(category_totals["net_profit"]))
-        self.category_kpi_vars["profitability"].set(_percent(category_totals["profitability"]))
+        self.category_kpi_vars["profitability"].set(
+            _profitability_text(
+                category_totals["profitability"] if category_totals["cost_sold"] else None,
+                units=category_totals["units"],
+                cost_sold=category_totals["cost_sold"],
+            )
+        )
         self.category_kpi_vars["units"].set(_number(category_totals["units"]))
         self.category_kpi_vars["cost_sold"].set(_money(category_totals["cost_sold"]))
         self.category_kpi_vars["financial_result"].set(_money(category_totals["financial_result"]))
@@ -1251,7 +1335,13 @@ class WBPriceAnalyzerApp(tk.Tk):
         self.scenario_kpi_vars["current_revenue"].set(_money(totals["revenue"]))
         self.scenario_kpi_vars["planned_revenue"].set(_money(planned_revenue_total))
         self.scenario_kpi_vars["planned_net"].set(_money(planned_net_total))
-        self.scenario_kpi_vars["planned_margin"].set(_percent(planned_net_total / planned_cost_total if planned_cost_total else 0))
+        self.scenario_kpi_vars["planned_margin"].set(
+            _profitability_text(
+                planned_net_total / planned_cost_total if planned_cost_total else None,
+                units=totals["units"],
+                cost_sold=planned_cost_total,
+            )
+        )
         self.scenario_count_var.set(f"Показано: {len(visible)} из {len(scenarios)}")
         self._configure_value_tags(self.scenario_tree)
 
@@ -1699,6 +1789,7 @@ class WBPriceAnalyzerApp(tk.Tk):
 
     def _refresh_after_catalog_change(self) -> None:
         self.refresh_products()
+        self._refresh_cost_catalog_warning()
         if self.current_run_id is not None:
             self.current_calculation = self.db.load_calculation(self.current_run_id)
             self._refresh_overview_calculation()
@@ -2004,6 +2095,7 @@ class WBPriceAnalyzerApp(tk.Tk):
             if dialog.cancelled:
                 return
             changed = self.db.save_products(dialog.products_to_apply, source=f"Импорт: {Path(source).name}")
+            self.db.set_setting("cost_catalog_warnings", "\n".join(catalog_warnings))
             self._refresh_after_catalog_change()
             messagebox.showinfo(
                 "Импорт себестоимости",
@@ -2014,6 +2106,55 @@ class WBPriceAnalyzerApp(tk.Tk):
             )
         except Exception as exc:
             messagebox.showerror("Импорт себестоимости", str(exc), parent=self)
+
+    def _refresh_cost_catalog_warning(self) -> None:
+        warning_text = self.db.get_setting("cost_catalog_warnings", "").strip()
+        known_articles = {
+            article.casefold() for article in self.db.product_map(active_only=False)
+        }
+        unresolved_lines: list[str] = []
+        for line in warning_text.splitlines():
+            article = ""
+            if ", артикул " in line and ":" in line:
+                article = line.split(", артикул ", 1)[1].split(":", 1)[0].strip()
+            if article and article.casefold() in known_articles:
+                continue
+            if line.strip():
+                unresolved_lines.append(line.strip())
+        warning_text = "\n".join(unresolved_lines)
+        self.db.set_setting("cost_catalog_warnings", warning_text)
+        if not warning_text:
+            self.cost_catalog_warning_var.set("")
+            self.cost_catalog_warning_frame.grid_remove()
+            return
+        count = len([line for line in warning_text.splitlines() if line.strip()])
+        self.cost_catalog_warning_var.set(
+            f"В последнем импорте пропущено строк без полной себестоимости: {count}. "
+            "Эти позиции не участвуют в расчете до заполнения себестоимости."
+        )
+        self.cost_catalog_warning_frame.grid()
+
+    def show_cost_catalog_warnings(self) -> None:
+        warning_text = self.db.get_setting("cost_catalog_warnings", "").strip()
+        if not warning_text:
+            messagebox.showinfo(
+                "Справочник себестоимости",
+                "В последнем импорте пропущенных строк нет.",
+                parent=self,
+            )
+            return
+        warning_lines = [line for line in warning_text.splitlines() if line.strip()]
+        shown_lines = warning_lines[:20]
+        remainder = len(warning_lines) - len(shown_lines)
+        messagebox.showwarning(
+            "Пропущенные строки справочника",
+            "В последнем импорте были пропущены позиции:\n\n"
+            + "\n".join(f"• {line}" for line in shown_lines)
+            + (f"\n…и еще {remainder}" if remainder else "")
+            + "\n\nЗаполните полную себестоимость и загрузите исправленный XLSX. "
+            "После корректного импорта это предупреждение исчезнет.",
+            parent=self,
+        )
 
     def clear_product_catalog(self) -> None:
         count = len(self.db.list_products())
@@ -2033,6 +2174,7 @@ class WBPriceAnalyzerApp(tk.Tk):
         if not confirmed:
             return
         removed = self.db.clear_products()
+        self.db.set_setting("cost_catalog_warnings", "")
         self._refresh_after_catalog_change()
         messagebox.showinfo(
             "Справочник очищен",
@@ -2093,10 +2235,12 @@ class WBPriceAnalyzerApp(tk.Tk):
         self.db.set_setting("warn_without_realization", "1" if self.warn_realization_var.get() else "0")
         self.db.set_setting("preview_rows", str(preview_rows))
         self.colors = apply_theme(self, THEME_LABELS[self.theme_var.get()])
+        self._restyle_resizable_panes()
         messagebox.showinfo("Настройки", "Настройки сохранены", parent=self)
 
     def _preview_theme(self, _event=None) -> None:
         self.colors = apply_theme(self, THEME_LABELS[self.theme_var.get()])
+        self._restyle_resizable_panes()
         for tree in (
             self.overview_tree,
             self.breakdown_tree,
@@ -3501,7 +3645,11 @@ def _result_values(result: ProductResult, tax_rate: float) -> tuple[object, ...]
         _money(result.material_sold),
         _money(result.labor_sold),
         _money(result.cost_sold),
-        _percent(result.profitability(tax_rate)),
+        _profitability_text(
+            result.profitability(tax_rate) if result.cost_sold else None,
+            units=result.units,
+            cost_sold=result.cost_sold,
+        ),
         _money(result.net_profit_per_unit(tax_rate)),
         _money(result.profit_per_unit()),
         _money(result.net_profit(tax_rate)),
@@ -3539,7 +3687,11 @@ def _scenario_values(row: ScenarioRow) -> tuple[object, ...]:
         _optional_money(row.current_price),
         _optional_money(row.planned_price),
         _optional_percent(row.price_change),
-        _optional_percent(row.profitability),
+        _profitability_text(
+            row.profitability,
+            units=row.units,
+            cost_sold=row.unit_cost * row.units,
+        ),
         _optional_money(row.ozon_costs_without_commission),
         _optional_money(row.planned_revenue),
         _optional_percent(row.commission_rate),
@@ -3565,7 +3717,7 @@ def filter_product_results(
 ) -> list[ProductResult]:
     visible = _filter_rows(rows, category, article_query)
     metrics = {
-        "Доходность": lambda row: row.profitability(tax_rate),
+        "Доходность": lambda row: row.profitability(tax_rate) if row.units > 0 and row.cost_sold > 0 else None,
         "Чистая прибыль": lambda row: row.net_profit(tax_rate),
         "Выручка": lambda row: row.revenue_including_points,
         "Количество продаж": lambda row: row.units,
@@ -3723,6 +3875,14 @@ def _number(value: float) -> str:
 
 def _percent(value: float) -> str:
     return f"{value * 100:,.2f}%".replace(",", " ")
+
+
+def _profitability_text(value: float | None, *, units: float, cost_sold: float) -> str:
+    if units <= 0:
+        return "Нет продаж"
+    if cost_sold <= 0:
+        return "Нет себестоимости"
+    return _percent(value) if value is not None else "Нет данных"
 
 
 def _signed_percentage_points(value: float) -> str:

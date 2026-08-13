@@ -9,6 +9,8 @@ from wb_app.database import Database
 from wb_app.models import Product, ProductResult
 from wb_app.ui import (
     CATEGORY_ALL,
+    _result_values,
+    _scenario_values,
     filter_product_results,
     filter_scenario_rows,
     summarize_category,
@@ -77,6 +79,38 @@ class CategoryFilterTests(unittest.TestCase):
         )
         self.assertEqual(by_profit[0].article, "B-20")
         self.assertEqual(by_profit[-1].article, "A-30")
+
+    def test_zero_sales_profitability_is_not_shown_as_zero_percent(self) -> None:
+        no_sales = ProductResult(
+            "ZERO",
+            "Товар без продаж",
+            80,
+            20,
+            units=0,
+            financial_result=-150,
+        )
+        scenario = calculate_scenario(no_sales, 0.04, None)
+
+        self.assertEqual(_result_values(no_sales, 0.04)[9], "Нет продаж")
+        self.assertEqual(_scenario_values(scenario)[8], "Нет продаж")
+
+    def test_zero_sales_rows_are_last_when_sorting_profitability(self) -> None:
+        no_sales = ProductResult(
+            "ZERO",
+            "Товар без продаж",
+            80,
+            20,
+            units=0,
+            financial_result=-150,
+        )
+        sorted_rows = filter_product_results(
+            [no_sales, *self.results],
+            0.04,
+            sort_metric="Доходность",
+            descending=True,
+        )
+
+        self.assertEqual(sorted_rows[-1].article, "ZERO")
 
     def test_category_summary_uses_all_products_in_category_only(self) -> None:
         summary = summarize_category(self.results, 0.04, "Горшки")

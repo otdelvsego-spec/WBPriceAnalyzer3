@@ -101,6 +101,24 @@ class CostCatalogTests(unittest.TestCase):
             self.assertEqual(imported[0].category, "")
             self.assertEqual(imported[0].total_cost, 120)
 
+    def test_blank_total_cost_is_reported_and_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = export_cost_catalog([], Path(directory) / "incomplete.xlsx")
+            workbook = load_workbook(path)
+            ws = workbook["Себестоимость"]
+            ws["A5"], ws["B5"], ws["D5"], ws["E5"] = "521473", "Товар", None, 10
+            ws["A6"], ws["B6"], ws["D6"], ws["E6"] = "OK", "Готовый товар", 100, 20
+            workbook.save(path)
+            workbook.close()
+
+            warnings: list[str] = []
+            imported = read_cost_catalog(path, warnings)
+
+            self.assertEqual([product.article for product in imported], ["OK"])
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("521473", warnings[0])
+            self.assertIn("не заполнена полная себестоимость", warnings[0])
+
     def test_rejects_invalid_application_entries_together(self) -> None:
         entries = [
             CostEditorEntry("A", "Товар", 100, 120, True, 1),
