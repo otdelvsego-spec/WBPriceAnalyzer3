@@ -149,16 +149,25 @@ def _fill_report_sheet(
         )
     product_cost = float(ws.cell(total_row, 23).value or 0)
     product_net = float(ws.cell(total_row, 24).value or 0)
-    ws.cell(total_row, 25, product_net / product_cost if product_cost else 0.0)
+    product_units = float(ws.cell(total_row, 5).value or 0)
+    total_profitability: float | str
+    if product_units <= 0:
+        total_profitability = "Нет продаж"
+    elif product_cost <= 0:
+        total_profitability = "Нет себестоимости"
+    else:
+        total_profitability = product_net / product_cost
+    ws.cell(total_row, 25, total_profitability)
     ws.cell(total_row + 1, 1, "Итого с нераспределенными")
     ws.cell(total_row + 1, 21, float(ws.cell(total_row, 21).value or 0) + calculation.unallocated_total)
     ws.cell(total_row + 1, 23, product_cost)
     ws.cell(total_row + 1, 24, product_net + calculation.unallocated_total)
-    ws.cell(
-        total_row + 1,
-        25,
-        (product_net + calculation.unallocated_total) / product_cost if product_cost else 0.0,
+    final_profitability = (
+        (product_net + calculation.unallocated_total) / product_cost
+        if product_cost > 0
+        else total_profitability
     )
+    ws.cell(total_row + 1, 25, final_profitability)
 
     _style_sheet(ws, total_row + 1, len(HEADERS))
     ws.freeze_panes = "D5"
@@ -198,13 +207,21 @@ def _write_product_row(
         result.tax(tax_rate),
         result.cost_sold,
         result.net_profit(tax_rate),
-        result.profitability(tax_rate),
+        _profitability_export_value(result, tax_rate),
         result.average_price(),
         scenario.planned_price,
         scenario.net_profit_per_unit,
     ]
     for column, value in enumerate(values, start=1):
         ws.cell(row, column, value)
+
+
+def _profitability_export_value(result: ProductResult, tax_rate: float) -> float | str:
+    if result.units <= 0:
+        return "Нет продаж"
+    if result.cost_sold <= 0:
+        return "Нет себестоимости"
+    return result.profitability(tax_rate)
 
 
 def _create_breakdown_sheet(workbook, calculation: RunCalculation) -> None:

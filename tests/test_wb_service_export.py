@@ -29,6 +29,37 @@ class WBServiceExportTests(unittest.TestCase):
         self.assertEqual(len(sessions[0].sources), 2)
         self.assertTrue(sessions[0].has_realization)
 
+    def test_export_marks_profitability_without_sales_as_not_applicable(self) -> None:
+        calculation = RunCalculation(
+            run_id=None,
+            period_start=date(2026, 8, 3),
+            period_end=date(2026, 8, 9),
+            tax_rate=0.06,
+            products=[
+                ProductResult(
+                    "ZERO",
+                    "Товар без продаж",
+                    80,
+                    20,
+                    units=0,
+                    delivery=-150,
+                    financial_result=-150,
+                )
+            ],
+            unallocated_total=0,
+            unallocated={},
+            accrual_stats={},
+        )
+        with tempfile.TemporaryDirectory() as temp_name:
+            path = Path(temp_name) / "report.xlsx"
+            export_calculation(calculation, path)
+            workbook = load_workbook(path, data_only=False)
+
+            self.assertEqual(workbook["Итог"]["Y5"].value, "Нет продаж")
+            self.assertEqual(workbook["Итог"]["Y6"].value, "Нет продаж")
+            self.assertEqual(workbook["Итог"]["Y7"].value, "Нет продаж")
+            workbook.close()
+
     def test_export_contains_wb_result_breakdown_and_guide(self) -> None:
         calculation = RunCalculation(
             run_id=None, period_start=date(2026, 8, 3), period_end=date(2026, 8, 9),
