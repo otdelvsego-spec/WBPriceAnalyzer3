@@ -1,4 +1,4 @@
-from wb_app.ui import run_app
+from wb_app.ui_parity import run_app
 
 
 if __name__ == "__main__":
