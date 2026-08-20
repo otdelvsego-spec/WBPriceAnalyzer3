@@ -407,6 +407,14 @@ class RunCalculation:
             ) / revenue,
         }
 
+    def revenue_amounts(self) -> dict[str, float]:
+        """Return the monetary numerators used by the revenue-share KPIs."""
+        return {
+            "commission": -sum(item.wb_commission for item in self.products),
+            "logistics": -sum(item.logistics_cost for item in self.products),
+            "points": -sum(item.loyalty_cost for item in self.products),
+        }
+
 
 @dataclass(slots=True)
 class ScenarioRow:

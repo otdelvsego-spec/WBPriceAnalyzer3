@@ -9,7 +9,7 @@ from openpyxl import load_workbook
 from wb_app.database import Database
 from wb_app.exporter import export_calculation
 from wb_app.models import ProductResult, RunCalculation
-from wb_app.report_totals import report_total_value
+from wb_app.report_totals import overview_revenue_kpi_values, report_total_value
 from wb_app.ui import _result_values
 
 
@@ -54,6 +54,19 @@ class RevenueShareMetricTests(unittest.TestCase):
                 "logistics_share": 0.08,
                 "points_share": 0.02,
                 "net_margin": 0.29,
+            },
+        )
+        self.assertEqual(
+            report.revenue_amounts(),
+            {"commission": 200, "logistics": 80, "points": 20},
+        )
+        self.assertEqual(
+            overview_revenue_kpi_values(report),
+            {
+                "commission": "200.00 ₽ · 20.00%",
+                "logistics": "80.00 ₽ · 8.00%",
+                "points": "20.00 ₽ · 2.00%",
+                "net_margin": "29.00%",
             },
         )
         self.assertEqual(
