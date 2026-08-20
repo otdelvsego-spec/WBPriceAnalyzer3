@@ -29,7 +29,13 @@ from .excel_reader import preview_sheet, workbook_sheet_names
 from .exporter import export_calculation, export_run, suggested_export_name
 from .models import Product, ProductResult, RunCalculation, RunSummary, ScenarioRow, UnknownProduct
 from .ordering import insert_at_group_end
-from .service import AppService, ImportBatch, ImportSession
+from .service import (
+    NOTICE_PERIOD_MISMATCH,
+    NOTICE_UNKNOWN_COLUMNS,
+    AppService,
+    ImportBatch,
+    ImportSession,
+)
 from .storage import migrate_storage
 from .theme import apply_theme
 from .trends import TrendPoint, build_trend_points, chart_bounds
@@ -2448,14 +2454,19 @@ class WBPriceAnalyzerApp(tk.Tk):
             if any(not session.sources or not session.has_accrual for session in sessions):
                 raise ValueError("Не найден еженедельный детализированный отчет WB")
 
-            warnings_by_session = [session.realization_period_warnings() for session in sessions]
-            all_period_warnings = [
-                f"{_session_period(session)}: {warning}"
-                for session, warnings in zip(sessions, warnings_by_session)
-                for warning in warnings
+            notices_by_session = [session.import_notices() for session in sessions]
+            warnings_by_session = [
+                [notice.message for notice in notices]
+                for notices in notices_by_session
             ]
-            if all_period_warnings:
-                dialog = RealizationPeriodDialog(self, all_period_warnings)
+            blocking_notices = [
+                (f"{_session_period(session)}: {notice.message}", notice.kind)
+                for session, notices in zip(sessions, notices_by_session)
+                for notice in notices
+                if notice.blocking
+            ]
+            if blocking_notices:
+                dialog = ImportWarningDialog(self, blocking_notices)
                 self.wait_window(dialog)
                 if not dialog.confirmed:
                     return
@@ -2789,10 +2800,34 @@ class OverviewReportSelectionDialog(tk.Toplevel):
         self.destroy()
 
 
-class RealizationPeriodDialog(tk.Toplevel):
-    def __init__(self, parent: WBPriceAnalyzerApp, warnings: list[str]):
+class ImportWarningDialog(tk.Toplevel):
+    def __init__(self, parent: WBPriceAnalyzerApp, notices: list[tuple[str, str]]):
         super().__init__(parent)
-        self.title("Периоды отчетов не совпадают")
+        notice_kinds = {kind for _message, kind in notices}
+        has_period_mismatch = NOTICE_PERIOD_MISMATCH in notice_kinds
+        has_format_change = NOTICE_UNKNOWN_COLUMNS in notice_kinds
+        if has_period_mismatch and has_format_change:
+            title = "Проверьте исходные отчеты WB"
+            heading = "Периоды или формат отчетов требуют проверки"
+            description = (
+                "В выбранных файлах есть несовпадающие недели и неизвестные столбцы WB. "
+                "Проверьте предупреждения перед продолжением импорта:"
+            )
+        elif has_period_mismatch:
+            title = "Периоды отчетов не совпадают"
+            heading = "Проверьте периоды исходных отчетов WB"
+            description = (
+                "Выбранные детализированные отчеты относятся к разным ISO-неделям. "
+                "Проверьте набор файлов перед продолжением импорта:"
+            )
+        else:
+            title = "Изменился формат отчета WB"
+            heading = "Проверьте новые столбцы отчета WB"
+            description = (
+                "В отчете появились неизвестные приложению столбцы. "
+                "Проверьте их назначение перед продолжением импорта:"
+            )
+        self.title(title)
         self.transient(parent)
         self.grab_set()
         self.resizable(False, False)
@@ -2801,21 +2836,18 @@ class RealizationPeriodDialog(tk.Toplevel):
 
         ttk.Label(
             self,
-            text="Проверьте период исходных отчетов WB",
+            text=heading,
             style="Section.TLabel",
         ).grid(row=0, column=0, sticky="w", padx=24, pady=(22, 4))
         ttk.Label(
             self,
-            text=(
-                "Основной отчет и отчет WB по выкупам должны относиться к одной ISO-неделе. "
-                "Также найдены строки-корректировки с датами другой недели:"
-            ),
+            text=description,
             justify="left",
             wraplength=730,
         ).grid(row=1, column=0, sticky="w", padx=24, pady=(0, 10))
         ttk.Label(
             self,
-            text="\n".join(f"• {message}" for message in warnings),
+            text="\n".join(f"• {message}" for message, _kind in notices),
             justify="left",
             wraplength=730,
             style="Warning.TLabel",
@@ -2823,8 +2855,7 @@ class RealizationPeriodDialog(tk.Toplevel):
         ttk.Label(
             self,
             text=(
-                "Если продолжить, все указанные строки войдут в расчет, "
-                "а предупреждение будет записано в «Контроль качества»."
+                "Если продолжить, предупреждение будет записано в «Контроль качества»."
             ),
             justify="left",
             wraplength=730,
@@ -2838,7 +2869,7 @@ class RealizationPeriodDialog(tk.Toplevel):
         )
         ttk.Button(
             buttons,
-            text="Продолжить с несовпадающим периодом",
+            text="Продолжить импорт",
             style="Accent.TButton",
             command=self._confirm,
         ).grid(row=0, column=1, padx=4)

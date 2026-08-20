@@ -218,11 +218,11 @@ def calculate_run(
         if source.out_of_period_rows:
             warnings.append(
                 f"«{source.path.name}»: {source.out_of_period_rows} строк относятся "
-                "к другой ISO-неделе и учтены как корректировки текущего отчета."
+                "к другой неделе; они учтены как корректировки текущего отчета."
             )
         if source.unknown_columns:
             warnings.append(
-                f"«{source.path.name}»: найдены новые столбцы WB: "
+                f"«{source.path.name}»: найдены неизвестные столбцы WB: "
                 + ", ".join(source.unknown_columns)
                 + ". Проверьте их назначение перед подтверждением расчета."
             )

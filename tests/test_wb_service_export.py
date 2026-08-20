@@ -9,7 +9,13 @@ from openpyxl import load_workbook
 
 from wb_app.exporter import export_calculation
 from wb_app.models import ParsedSource, ProductResult, RunCalculation
-from wb_app.service import split_import_sources
+from wb_app.service import (
+    NOTICE_CORRECTION_ROWS,
+    NOTICE_PERIOD_MISMATCH,
+    NOTICE_UNKNOWN_COLUMNS,
+    ImportSession,
+    split_import_sources,
+)
 
 
 def source(name: str, variant: str, start: date, end: date) -> ParsedSource:
@@ -28,6 +34,29 @@ class WBServiceExportTests(unittest.TestCase):
         self.assertEqual(len(sessions), 2)
         self.assertEqual(len(sessions[0].sources), 2)
         self.assertTrue(sessions[0].has_realization)
+
+    def test_correction_rows_are_recorded_but_do_not_block_import(self) -> None:
+        report = source("correction.xlsx", "основной", date(2026, 8, 10), date(2026, 8, 16))
+        report.out_of_period_rows = 2
+        notices = ImportSession([report], []).import_notices()
+        self.assertEqual(len(notices), 1)
+        self.assertEqual(notices[0].kind, NOTICE_CORRECTION_ROWS)
+        self.assertFalse(notices[0].blocking)
+        self.assertIn("учтены как корректировки", notices[0].message)
+
+    def test_unknown_columns_require_confirmation(self) -> None:
+        report = source("changed.xlsx", "основной", date(2026, 8, 10), date(2026, 8, 16))
+        report.unknown_columns = ["Новый столбец"]
+        notices = ImportSession([report], []).import_notices()
+        self.assertEqual(notices[0].kind, NOTICE_UNKNOWN_COLUMNS)
+        self.assertTrue(notices[0].blocking)
+
+    def test_different_source_periods_require_confirmation(self) -> None:
+        first = source("first.xlsx", "основной", date(2026, 8, 3), date(2026, 8, 9))
+        second = source("second.xlsx", "по выкупам", date(2026, 8, 10), date(2026, 8, 16))
+        notices = ImportSession([first, second], []).import_notices()
+        mismatch = next(notice for notice in notices if notice.kind == NOTICE_PERIOD_MISMATCH)
+        self.assertTrue(mismatch.blocking)
 
     def test_export_marks_profitability_without_sales_as_not_applicable(self) -> None:
         calculation = RunCalculation(

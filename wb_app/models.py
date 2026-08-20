@@ -46,6 +46,9 @@ class AccrualRow:
     realized_price: float
     seller_payout: float
     logistics: float = 0.0
+    # Informational coefficient from newer WB exports. The monetary logistics
+    # amount above already includes it, so calculations must not apply it again.
+    logistics_coefficient: float = 0.0
     penalty: float = 0.0
     storage: float = 0.0
     acceptance: float = 0.0

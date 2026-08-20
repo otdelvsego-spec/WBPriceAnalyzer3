@@ -14,6 +14,18 @@ from .excel_reader import REPORT_WEEKLY, parse_report
 from .models import ParsedSource, Product, RunCalculation, UnknownProduct
 
 
+NOTICE_PERIOD_MISMATCH = "period_mismatch"
+NOTICE_CORRECTION_ROWS = "correction_rows"
+NOTICE_UNKNOWN_COLUMNS = "unknown_columns"
+
+
+@dataclass(slots=True, frozen=True)
+class ImportNotice:
+    kind: str
+    message: str
+    blocking: bool
+
+
 @dataclass(slots=True)
 class ImportSession:
     sources: list[ParsedSource]
@@ -38,30 +50,46 @@ class ImportSession:
         dates = [source.period_end for source in self.sources if source.period_end is not None]
         return max(dates) if dates else None
 
-    def realization_period_warnings(self) -> list[str]:
-        warnings: list[str] = []
+    def import_notices(self) -> list[ImportNotice]:
+        notices: list[ImportNotice] = []
         periods = {
             (source.period_start, source.period_end)
             for source in self.sources
         }
         if len(periods) > 1:
-            warnings.append(
-                "Выбраны детализированные отчеты WB за разные недели. "
-                "Они должны импортироваться отдельными расчетами."
+            notices.append(
+                ImportNotice(
+                    NOTICE_PERIOD_MISMATCH,
+                    "Выбраны детализированные отчеты WB за разные недели. "
+                    "Они должны импортироваться отдельными расчетами.",
+                    True,
+                )
             )
         for source in self.sources:
             if source.out_of_period_rows:
-                warnings.append(
-                    f"«{source.path.name}»: {source.out_of_period_rows} строк относятся "
-                    "к другой неделе; они будут учтены как корректировки."
+                notices.append(
+                    ImportNotice(
+                        NOTICE_CORRECTION_ROWS,
+                        f"«{source.path.name}»: {source.out_of_period_rows} строк относятся "
+                        "к другой неделе; они учтены как корректировки текущего отчета.",
+                        False,
+                    )
                 )
             if source.unknown_columns:
-                warnings.append(
-                    f"«{source.path.name}»: найдены новые столбцы WB: "
-                    + ", ".join(source.unknown_columns)
-                    + ". Проверьте их назначение перед подтверждением расчета."
+                notices.append(
+                    ImportNotice(
+                        NOTICE_UNKNOWN_COLUMNS,
+                        f"«{source.path.name}»: найдены неизвестные столбцы WB: "
+                        + ", ".join(source.unknown_columns)
+                        + ". Проверьте их назначение перед подтверждением расчета.",
+                        True,
+                    )
                 )
-        return warnings
+        return notices
+
+    def realization_period_warnings(self) -> list[str]:
+        """Compatibility list persisted in the report quality-control section."""
+        return [notice.message for notice in self.import_notices()]
 
 
 @dataclass(slots=True)

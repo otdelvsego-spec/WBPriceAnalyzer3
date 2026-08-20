@@ -37,6 +37,7 @@ KNOWN_WB_HEADERS = {
     "Вознаграждение Вайлдберриз (ВВ), без НДС", "НДС с Вознаграждения Вайлдберриз",
     "К перечислению Продавцу за реализованный Товар", "Количество доставок",
     "Количество возврата", "Услуги по доставке товара покупателю",
+    "Коэффициент логистики",
     "Дата начала действия фиксации", "Дата конца действия фиксации",
     "Признак услуги платной доставки", "Общая сумма штрафов",
     "Корректировка Вознаграждения Вайлдберриз (ВВ)",
@@ -235,6 +236,10 @@ def _parse_weekly(ws, header_row: int, parsed: ParsedSource) -> None:
         "commission_vat": _required(columns, "НДС с Вознаграждения Вайлдберриз"),
         "payout": _required(columns, "К перечислению Продавцу за реализованный Товар"),
         "logistics": _required(columns, "Услуги по доставке товара покупателю"),
+        # WB introduced this optional diagnostic field during summer 2026.
+        # Old reports do not contain it, while the monetary logistics column
+        # already reflects the coefficient.
+        "logistics_coefficient": _find(columns, "Коэффициент логистики"),
         "penalty": _required(columns, "Общая сумма штрафов"),
         "commission_adjustment": _required(columns, "Корректировка Вознаграждения Вайлдберриз (ВВ)"),
         "detail": _required(columns, "Виды логистики, штрафов и корректировок ВВ"),
@@ -282,6 +287,11 @@ def _parse_weekly(ws, header_row: int, parsed: ParsedSource) -> None:
                 realized_price=as_float(ws.cell(row_number, positions["realized"]).value),
                 seller_payout=as_float(ws.cell(row_number, positions["payout"]).value),
                 logistics=as_float(ws.cell(row_number, positions["logistics"]).value),
+                logistics_coefficient=(
+                    as_float(ws.cell(row_number, positions["logistics_coefficient"]).value)
+                    if positions["logistics_coefficient"]
+                    else 0.0
+                ),
                 penalty=as_float(ws.cell(row_number, positions["penalty"]).value),
                 storage=as_float(ws.cell(row_number, positions["storage"]).value),
                 acceptance=as_float(ws.cell(row_number, positions["acceptance"]).value),
@@ -348,7 +358,7 @@ def preview_sheet(
     path: str | Path,
     sheet_name: str,
     max_rows: int = 500,
-    max_columns: int = 84,
+    max_columns: int = 85,
 ) -> tuple[list[str], list[list[str]]]:
     workbook = load_workbook(Path(path), read_only=False, data_only=True)
     try:

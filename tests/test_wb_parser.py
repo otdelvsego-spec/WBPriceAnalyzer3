@@ -22,7 +22,7 @@ HEADERS = [
     "Возмещение издержек по перевозке/по складским операциям с товаром", "Хранение",
     "Удержания", "Операции на приемке", "Компенсация скидки по программе лояльности",
     "Стоимость участия в программе лояльности", "Сумма баллов, удержанных по программе лояльности",
-    "Разовое изменение срока перечисления денежных средств",
+    "Разовое изменение срока перечисления денежных средств", "Коэффициент логистики",
 ]
 
 
@@ -33,7 +33,7 @@ class WBParserTests(unittest.TestCase):
             workbook = Workbook()
             ws = workbook.active
             ws.append(HEADERS + ["Новый денежный столбец"])
-            base = ["Горшок", 100, "A", "Товар A", "Продажа", "Продажа", "03.08.2026", "03.08.2026", 1, 1000, 800, 0, 20, 100, 20, 680, 0, 0, 0, "", "Казахстан", "s1", 0, 0, 0, 0, 0, 0, 0, 0, 5]
+            base = ["Горшок", 100, "A", "Товар A", "Продажа", "Продажа", "03.08.2026", "03.08.2026", 1, 1000, 800, 0, 20, 100, 20, 680, 0, 0, 0, "", "Казахстан", "s1", 0, 0, 0, 0, 0, 0, 0, 0, 1.5, 5]
             ws.append(base)
             ws.append(base[:7] + ["04.08.2026"] + base[8:])
             ws.append(base[:7] + ["02.08.2026"] + base[8:])
@@ -48,6 +48,7 @@ class WBParserTests(unittest.TestCase):
             self.assertEqual(parsed.out_of_period_rows, 1)
             self.assertEqual(parsed.unknown_columns, ["Новый денежный столбец"])
             self.assertEqual(parsed.row_count, 3)
+            self.assertEqual(parsed.accrual_rows[0].logistics_coefficient, 1.5)
             headers, rows = preview_sheet(path, parsed.sheet_name)
             self.assertEqual(headers[1], "A")
             self.assertEqual(rows[1][2], "100")
