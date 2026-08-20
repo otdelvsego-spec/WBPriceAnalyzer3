@@ -128,15 +128,22 @@ class DetachedTableWindow:
         ttk.Label(bar,text="Фильтр синхронизирован с основной таблицей",style="Muted.TLabel").grid(row=0,column=3,sticky="e",padx=(16,0))
     def _rows(self)->tuple[object,...]:
         return tuple((iid,tuple(self.source.item(iid).get("values",())),tuple(self.source.item(iid).get("tags",()))) for iid in self.source.get_children(""))
+    def _source_display_columns(self)->tuple[str,...]:
+        configured=self.source.cget("displaycolumns")
+        if configured in ("#all",("#all",)):
+            return tuple(str(column) for column in self.source.cget("columns"))
+        if isinstance(configured,(tuple,list)):
+            return tuple(str(column) for column in configured)
+        return tuple(str(column) for column in self.source.tk.splitlist(configured))
     def refresh(self,force:bool=False)->None:
         if self._closed:return
         try:
             if not self.window.winfo_exists():return
         except tk.TclError:return
-        sig=self._rows()
+        display_columns=self._source_display_columns();sig=(display_columns,self._rows())
         if not force and sig==self._signature:return
-        selected=tuple(self.tree.selection());y=self.tree.yview();self.tree.delete(*self.tree.get_children(""))
-        for iid,values,tags in sig:self.tree.insert("","end",iid=str(iid),values=values,tags=tags)
+        selected=tuple(self.tree.selection());y=self.tree.yview();self.tree.configure(displaycolumns=display_columns);self.tree.delete(*self.tree.get_children(""))
+        for iid,values,tags in sig[1]:self.tree.insert("","end",iid=str(iid),values=values,tags=tags)
         self.owner._configure_value_tags(self.tree);valid=[x for x in selected if self.tree.exists(x)]
         if valid:self.tree.selection_set(valid)
         if y:self.tree.yview_moveto(y[0])

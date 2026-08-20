@@ -42,6 +42,10 @@ HEADERS = [
     "Средняя розничная цена, руб.",
     "Плановая цена, руб.",
     "Плановая чистая прибыль на ед., руб.",
+    "Средняя комиссия, % от выручки",
+    "Логистика, % от выручки",
+    "Баллы, % от выручки",
+    "Чистая прибыль, % от выручки",
 ]
 
 
@@ -162,12 +166,21 @@ def _fill_report_sheet(
     ws.cell(total_row + 1, 21, float(ws.cell(total_row, 21).value or 0) + calculation.unallocated_total)
     ws.cell(total_row + 1, 23, product_cost)
     ws.cell(total_row + 1, 24, product_net + calculation.unallocated_total)
-    final_profitability = (
-        (product_net + calculation.unallocated_total) / product_cost
-        if product_cost > 0
-        else total_profitability
+    ws.cell(total_row + 1, 25, total_profitability)
+
+    revenue = float(ws.cell(total_row, 6).value or 0)
+    shares = calculation.revenue_shares()
+    product_net_margin = product_net / revenue if revenue else 0.0
+    share_values = (
+        shares["commission_share"],
+        shares["logistics_share"],
+        shares["points_share"],
     )
-    ws.cell(total_row + 1, 25, final_profitability)
+    for offset, value in enumerate(share_values, start=29):
+        ws.cell(total_row, offset, value)
+        ws.cell(total_row + 1, offset, value)
+    ws.cell(total_row, 32, product_net_margin)
+    ws.cell(total_row + 1, 32, shares["net_margin"])
 
     _style_sheet(ws, total_row + 1, len(HEADERS))
     ws.freeze_panes = "D5"
@@ -211,6 +224,10 @@ def _write_product_row(
         result.average_price(),
         scenario.planned_price,
         scenario.net_profit_per_unit,
+        result.commission_share(),
+        result.logistics_share(),
+        result.points_share(),
+        result.net_margin(tax_rate),
     ]
     for column, value in enumerate(values, start=1):
         ws.cell(row, column, value)
@@ -294,6 +311,8 @@ def _style_sheet(ws, last_row: int, last_column: int) -> None:
         for column in range(4, last_column + 1):
             ws.cell(row, column).number_format = "#,##0.00"
         ws.cell(row, 25).number_format = "0.00%"
+        for column in range(29, 33):
+            ws.cell(row, column).number_format = "0.00%"
     ws["E2"].number_format = "0.00%"
 
 

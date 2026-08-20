@@ -330,6 +330,22 @@ class ProductResult:
     def profitability(self, rate: float) -> float:
         return self.net_profit(rate) / self.cost_sold if self.cost_sold else 0.0
 
+    def commission_share(self) -> float:
+        revenue = self.revenue_including_points
+        return -self.wb_commission / revenue if revenue else 0.0
+
+    def logistics_share(self) -> float:
+        revenue = self.revenue_including_points
+        return -self.logistics_cost / revenue if revenue else 0.0
+
+    def points_share(self) -> float:
+        revenue = self.revenue_including_points
+        return -self.loyalty_cost / revenue if revenue else 0.0
+
+    def net_margin(self, rate: float) -> float:
+        revenue = self.revenue_including_points
+        return self.net_profit(rate) / revenue if revenue else 0.0
+
 
 @dataclass(slots=True)
 class RunCalculation:
@@ -367,6 +383,25 @@ class RunCalculation:
                 + self.unallocated_total
             ),
             "unallocated": self.unallocated_total,
+        }
+
+    def revenue_shares(self) -> dict[str, float]:
+        revenue = sum(item.revenue_including_points for item in self.products)
+        if not revenue:
+            return {
+                "commission_share": 0.0,
+                "logistics_share": 0.0,
+                "points_share": 0.0,
+                "net_margin": 0.0,
+            }
+        return {
+            "commission_share": -sum(item.wb_commission for item in self.products) / revenue,
+            "logistics_share": -sum(item.logistics_cost for item in self.products) / revenue,
+            "points_share": -sum(item.loyalty_cost for item in self.products) / revenue,
+            "net_margin": (
+                sum(item.net_profit(self.tax_rate) for item in self.products)
+                + self.unallocated_total
+            ) / revenue,
         }
 
 
@@ -416,6 +451,11 @@ class RunSummary:
     unallocated_total: float
     status: str
     report_name: str = ""
+    profitability: float = 0.0
+    commission_share: float = 0.0
+    logistics_share: float = 0.0
+    points_share: float = 0.0
+    net_margin: float = 0.0
 
 
 def as_serializable(value: Any) -> Any:

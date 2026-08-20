@@ -1,4 +1,4 @@
-from wb_app.report_exports import run_app
+from wb_app.report_totals import run_app
 
 
 if __name__ == "__main__":

@@ -40,9 +40,23 @@ THEME_VALUES = {value: key for key, value in THEME_LABELS.items()}
 TREND_METRICS = {
     "Выручка": "revenue",
     "Чистая прибыль": "net_profit",
+    "Доходность": "profitability",
     "Продажи, шт.": "units",
     "Нераспределенные доходы / расходы": "unallocated",
+    "Средняя комиссия, % от выручки": "commission_share",
+    "Логистика, % от выручки": "logistics_share",
+    "Баллы, % от выручки": "points_share",
+    "Чистая прибыль, % от выручки": "net_margin",
 }
+TREND_PERCENT_METRICS = {
+    "profitability",
+    "commission_share",
+    "logistics_share",
+    "points_share",
+    "net_margin",
+}
+TREND_PERIOD_ALL = "Все годы"
+TREND_PERIOD_SELECT = "Выбрать годы…"
 CATEGORY_ALL = "Все категории"
 CATEGORY_EMPTY = "Без категории"
 SORT_NONE = "Без сортировки"
@@ -55,6 +69,72 @@ SORT_METRICS = (
 )
 SORT_ASCENDING = "По возрастанию (А-Я)"
 SORT_DESCENDING = "По убыванию (Я-А)"
+
+
+OVERVIEW_COLUMN_SPECS = (
+    ("article", "Артикул", 120),
+    ("name", "Наименование", 230),
+    ("category", "Категория", 190),
+    ("unit_cost", "Итого с/с", 125),
+    ("material", "Материал", 125),
+    ("labor", "Трудозатраты", 125),
+    ("material_sold", "Материал проданного", 125),
+    ("labor_sold", "Трудозатраты проданного", 125),
+    ("cost_sold", "С/с проданного", 125),
+    ("profitability", "Доходность", 125),
+    ("net_unit", "Чистая прибыль на ед.", 125),
+    ("profit_unit", "Прибыль от продаж на ед.", 125),
+    ("net_total", "Чистая прибыль всего", 125),
+    ("profit_total", "Прибыль от продаж всего", 125),
+    ("avg_price", "Средняя цена", 125),
+    ("tax", "Налог", 125),
+    ("taxable", "Налогооблагаемый доход", 125),
+    ("units", "Продажи", 125),
+    ("revenue", "Цена розничная, итого", 125),
+    ("revenue_no_points", "WB реализовал, итого", 125),
+    ("partner", "К перечислению продавцу", 125),
+    ("points", "Комиссия WB (справочно)", 125),
+    ("commission", "Эквайринг (справочно)", 125),
+    ("processing", "ПВЗ (справочно)", 125),
+    ("delivery", "Логистика", 125),
+    ("logistics", "Штрафы", 125),
+    ("reverse", "Операции на приемке", 125),
+    ("returns", "Хранение", 125),
+    ("acquiring", "Компенсация лояльности", 125),
+    ("stars", "Лояльность и баллы", 125),
+    ("packaging", "Корректировки и удержания", 125),
+    ("compensation", "Прочие денежные операции", 125),
+    ("other", "Возмещение перевозчика (нейтрально)", 125),
+    ("financial_result", "Финрезультат WB", 125),
+    ("commission_share", "Средняя комиссия, % от выручки", 205),
+    ("logistics_share", "Логистика, % от выручки", 190),
+    ("points_share", "Баллы, % от выручки", 175),
+    ("net_margin", "Чистая прибыль, % от выручки", 215),
+)
+
+
+SCENARIO_COLUMN_SPECS = (
+    ("article", "Артикул", 120),
+    ("name", "Наименование", 230),
+    ("category", "Категория", 190),
+    ("cost", "Себестоимость", 135),
+    ("units", "Продажи", 135),
+    ("current_price", "Текущая цена", 135),
+    ("planned_price", "Плановая цена", 135),
+    ("change", "Изменение", 135),
+    ("profitability", "Доходность", 135),
+    ("other_costs", "Постоянные расходы WB", 135),
+    ("planned_revenue", "Плановая выручка", 135),
+    ("commission_rate", "Доля к перечислению", 135),
+    ("commission", "Плановое перечисление", 135),
+    ("points", "Прочие изменения", 135),
+    ("taxable", "Налоговая база", 135),
+    ("tax", "Налог", 135),
+    ("profit", "Прибыль до с/с", 135),
+    ("profit_unit", "Прибыль/ед. до с/с", 135),
+    ("net_unit", "Чистая прибыль/ед.", 135),
+    ("net_total", "Чистая прибыль всего", 135),
+)
 
 
 class WBPriceAnalyzerApp(tk.Tk):
@@ -74,6 +154,10 @@ class WBPriceAnalyzerApp(tk.Tk):
         self.history_number_by_id: dict[int, int] = {}
         self.history_year_filter: set[int] | None = None
         self.history_year_filter_var = tk.StringVar(value="Все годы")
+        self.trend_year_filter: set[int] | None = None
+        self.trend_period_mode = "all"
+        self.trend_period_var = tk.StringVar(value=TREND_PERIOD_ALL)
+        self.trend_has_history = False
         self.source_by_iid: dict[str, dict[str, object]] = {}
         self.preview_headers: list[str] = []
         self.preview_rows: list[list[str]] = []
@@ -294,25 +378,11 @@ class WBPriceAnalyzerApp(tk.Tk):
             row=0, column=10, sticky="e"
         )
 
-        columns = [
-            "article", "name", "category", "unit_cost", "material", "labor", "material_sold", "labor_sold", "cost_sold",
-            "profitability", "net_unit", "profit_unit", "net_total", "profit_total", "avg_price", "tax",
-            "taxable", "units", "revenue", "revenue_no_points", "partner", "points", "commission", "processing",
-            "delivery", "logistics", "reverse", "returns", "acquiring", "stars", "packaging", "compensation",
-            "other", "financial_result",
-        ]
-        headings = [
-            "Артикул", "Наименование", "Категория", "Итого с/с", "Материал", "Трудозатраты", "Материал проданного",
-            "Трудозатраты проданного", "С/с проданного", "Доходность", "Чистая прибыль на ед.",
-            "Прибыль от продаж на ед.", "Чистая прибыль всего", "Прибыль от продаж всего", "Средняя цена",
-            "Налог", "Налогооблагаемый доход", "Продажи", "Цена розничная, итого", "WB реализовал, итого",
-            "К перечислению продавцу", "Комиссия WB (справочно)", "Эквайринг (справочно)",
-            "ПВЗ (справочно)", "Логистика", "Штрафы", "Операции на приемке", "Хранение",
-            "Компенсация лояльности", "Лояльность и баллы", "Корректировки и удержания",
-            "Прочие денежные операции", "Возмещение перевозчика (нейтрально)", "Финрезультат WB",
-        ]
+        columns = [column_id for column_id, _heading, _width in OVERVIEW_COLUMN_SPECS]
+        headings = [heading for _column_id, heading, _width in OVERVIEW_COLUMN_SPECS]
+        widths = [width for _column_id, _heading, width in OVERVIEW_COLUMN_SPECS]
         self.overview_tree = self._create_tree(
-            overview_table, columns, headings, row=0, widths=[120, 230, 190] + [125] * 31
+            overview_table, columns, headings, row=0, widths=widths
         )
 
     def _build_sources_tab(self) -> None:
@@ -485,10 +555,10 @@ class WBPriceAnalyzerApp(tk.Tk):
 
         self.scenario_tree = self._create_tree(
             scenario_table,
-            ["article", "name", "category", "cost", "units", "current_price", "planned_price", "change", "profitability", "other_costs", "planned_revenue", "commission_rate", "commission", "points", "taxable", "tax", "profit", "profit_unit", "net_unit", "net_total"],
-            ["Артикул", "Наименование", "Категория", "Себестоимость", "Продажи", "Текущая цена", "Плановая цена", "Изменение", "Доходность", "Постоянные расходы WB", "Плановая выручка", "Доля к перечислению", "Плановое перечисление", "Прочие изменения", "Налоговая база", "Налог", "Прибыль до с/с", "Прибыль/ед. до с/с", "Чистая прибыль/ед.", "Чистая прибыль всего"],
+            [column_id for column_id, _heading, _width in SCENARIO_COLUMN_SPECS],
+            [heading for _column_id, heading, _width in SCENARIO_COLUMN_SPECS],
             row=0,
-            widths=[120, 230, 190] + [135] * 17,
+            widths=[width for _column_id, _heading, width in SCENARIO_COLUMN_SPECS],
         )
         self.scenario_tree.bind("<<TreeviewSelect>>", self._on_scenario_selected)
 
@@ -568,6 +638,16 @@ class WBPriceAnalyzerApp(tk.Tk):
         )
         trend_combo.grid(row=0, column=1, sticky="w")
         trend_combo.bind("<<ComboboxSelected>>", lambda _event: self._draw_trend_chart())
+        ttk.Label(controls, text="Период:").grid(row=0, column=2, padx=(24, 6))
+        self.trend_period_combo = ttk.Combobox(
+            controls,
+            textvariable=self.trend_period_var,
+            state="readonly",
+            values=(TREND_PERIOD_ALL, _current_year_period_label(), TREND_PERIOD_SELECT),
+            width=24,
+        )
+        self.trend_period_combo.grid(row=0, column=3, sticky="w")
+        self.trend_period_combo.bind("<<ComboboxSelected>>", self._on_trend_period_selected)
 
         self.trend_canvas = tk.Canvas(
             self.trend_tab,
@@ -585,13 +665,19 @@ class WBPriceAnalyzerApp(tk.Tk):
         )
         self.trend_tree = self._create_tree(
             self.trend_tab,
-            ["run", "period", "units", "revenue", "revenue_change", "net", "net_change", "unallocated"],
+            [
+                "run", "period", "units", "revenue", "revenue_change", "net",
+                "net_change", "profitability", "unallocated", "commission_share",
+                "logistics_share", "points_share", "net_margin",
+            ],
             [
                 "№ отчета", "Период", "Продажи", "Выручка", "Изменение выручки",
-                "Чистая прибыль", "Изменение прибыли", "Нераспределенные",
+                "Чистая прибыль", "Изменение прибыли", "Доходность", "Нераспределенные",
+                "Средняя комиссия, % от выручки", "Логистика, % от выручки",
+                "Баллы, % от выручки", "Чистая прибыль, % от выручки",
             ],
             row=5,
-            widths=[80, 230, 110, 150, 170, 150, 170, 170],
+            widths=[80, 230, 110, 150, 170, 150, 170, 140, 170, 210, 190, 175, 215],
             height=8,
         )
 
@@ -1539,7 +1625,15 @@ class WBPriceAnalyzerApp(tk.Tk):
         self.status_var.set(f"Отчет удален{suffix}")
 
     def refresh_trends(self, runs=None) -> None:
-        self.trend_points = build_trend_points(list(runs) if runs is not None else self.db.list_runs())
+        all_runs = list(runs) if runs is not None else self.db.list_runs()
+        self.trend_has_history = bool(all_runs)
+        selected_years = (
+            {date.today().year}
+            if self.trend_period_mode == "current"
+            else self.trend_year_filter
+        )
+        self.trend_period_var.set(_trend_period_label(self.trend_period_mode, selected_years))
+        self.trend_points = build_trend_points(_filter_runs_by_years(all_runs, selected_years))
         self.trend_tree.delete(*self.trend_tree.get_children())
         previous: TrendPoint | None = None
         for point in self.trend_points:
@@ -1558,13 +1652,65 @@ class WBPriceAnalyzerApp(tk.Tk):
                     _signed_money(revenue_change) if revenue_change is not None else "—",
                     _money(point.net_profit),
                     _signed_money(profit_change) if profit_change is not None else "—",
+                    _percent(point.profitability),
                     _money(point.unallocated),
+                    _percent(point.commission_share),
+                    _percent(point.logistics_share),
+                    _percent(point.points_share),
+                    _percent(point.net_margin),
                 ),
                 tags=(tag,),
             )
             previous = point
         self._configure_value_tags(self.trend_tree)
         self._draw_trend_chart()
+
+    def _on_trend_period_selected(self, _event=None) -> None:
+        selection = self.trend_period_var.get()
+        if selection == TREND_PERIOD_ALL:
+            self.trend_period_mode = "all"
+            self.trend_year_filter = None
+            self.refresh_trends()
+            return
+        if selection == _current_year_period_label():
+            self.trend_period_mode = "current"
+            self.trend_year_filter = None
+            self.refresh_trends()
+            return
+        if selection == TREND_PERIOD_SELECT:
+            self.choose_trend_years()
+
+    def choose_trend_years(self) -> None:
+        runs = self.db.list_runs()
+        years = sorted({year for run in runs for year in _run_years(run)})
+        if not years:
+            active_years = (
+                {date.today().year}
+                if self.trend_period_mode == "current"
+                else self.trend_year_filter
+            )
+            self.trend_period_var.set(_trend_period_label(self.trend_period_mode, active_years))
+            messagebox.showinfo("Динамика", "В истории пока нет отчетов", parent=self)
+            return
+        selected_years = self.trend_year_filter if self.trend_period_mode == "custom" else None
+        dialog = HistoryYearFilterDialog(
+            self,
+            years,
+            selected_years,
+            title="Период динамики по годам",
+        )
+        self.wait_window(dialog)
+        if dialog.cancelled:
+            active_years = (
+                {date.today().year}
+                if self.trend_period_mode == "current"
+                else self.trend_year_filter
+            )
+            self.trend_period_var.set(_trend_period_label(self.trend_period_mode, active_years))
+            return
+        self.trend_year_filter = dialog.selected_years
+        self.trend_period_mode = "all" if dialog.selected_years is None else "custom"
+        self.refresh_trends(runs)
 
     def _draw_trend_chart(self) -> None:
         if not hasattr(self, "trend_canvas"):
@@ -1580,10 +1726,15 @@ class WBPriceAnalyzerApp(tk.Tk):
         plot_height = height - top - bottom
         metric = TREND_METRICS.get(self.trend_metric_var.get(), "revenue")
         if not self.trend_points:
+            empty_message = (
+                "За выбранный период нет сохраненных отчетов"
+                if self.trend_has_history
+                else "Импортируйте отчеты, чтобы увидеть динамику"
+            )
             canvas.create_text(
                 width / 2,
                 height / 2,
-                text="Импортируйте отчеты, чтобы увидеть динамику",
+                text=empty_message,
                 fill=self.colors["muted"],
                 font=("Segoe UI", 12),
             )
@@ -2762,9 +2913,11 @@ class HistoryYearFilterDialog(tk.Toplevel):
         parent: WBPriceAnalyzerApp,
         years: list[int],
         selected_years: set[int] | None,
+        *,
+        title: str = "Фильтр истории по годам",
     ):
         super().__init__(parent)
-        self.title("Фильтр истории по годам")
+        self.title(title)
         self.transient(parent)
         self.grab_set()
         self.resizable(False, False)
@@ -3674,6 +3827,10 @@ def _result_values(result: ProductResult, tax_rate: float) -> tuple[object, ...]
         _money(result.other),
         _money(result.carrier_reimbursement),
         _money(result.financial_result),
+        _percent(result.commission_share()),
+        _percent(result.logistics_share()),
+        _percent(result.points_share()),
+        _percent(result.net_margin(tax_rate)),
     )
 
 
@@ -3908,6 +4065,8 @@ def _comparison_kpi(metric: ComparisonMetric, money: bool) -> str:
 def _axis_value(value: float, metric: str) -> str:
     if metric == "units":
         return _number(value)
+    if metric in TREND_PERCENT_METRICS:
+        return _percent(value)
     absolute = abs(value)
     if absolute >= 1_000_000:
         return f"{value / 1_000_000:.1f} млн"
@@ -3917,7 +4076,11 @@ def _axis_value(value: float, metric: str) -> str:
 
 
 def _trend_value(value: float, metric: str) -> str:
-    return _number(value) if metric == "units" else _money(value)
+    if metric == "units":
+        return _number(value)
+    if metric in TREND_PERCENT_METRICS:
+        return _percent(value)
+    return _money(value)
 
 
 def _short_period(value: str) -> str:
@@ -4011,6 +4174,16 @@ def _year_filter_label(selected_years: set[int] | None) -> str:
     if len(years) <= 3:
         return ", ".join(str(year) for year in years)
     return f"Выбрано лет: {len(years)}"
+
+
+def _current_year_period_label() -> str:
+    return f"Текущий год ({date.today().year})"
+
+
+def _trend_period_label(mode: str, selected_years: set[int] | None) -> str:
+    if mode == "current":
+        return _current_year_period_label()
+    return _year_filter_label(selected_years)
 
 
 def _text_year(value: str | None) -> int | None:
