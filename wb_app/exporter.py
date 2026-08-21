@@ -182,8 +182,16 @@ def _fill_report_sheet(
     ws.cell(total_row + 1, 1, "Итого с нераспределенными")
     ws.cell(total_row + 1, 21, float(ws.cell(total_row, 21).value or 0) + calculation.unallocated_total)
     ws.cell(total_row + 1, 23, product_cost)
-    ws.cell(total_row + 1, 24, product_net + calculation.unallocated_total)
-    ws.cell(total_row + 1, 25, total_profitability)
+    report_net = product_net + calculation.unallocated_total
+    ws.cell(total_row + 1, 24, report_net)
+    report_profitability: float | str
+    if product_units <= 0:
+        report_profitability = "Нет продаж"
+    elif product_cost <= 0:
+        report_profitability = "Нет себестоимости"
+    else:
+        report_profitability = report_net / product_cost
+    ws.cell(total_row + 1, 25, report_profitability)
 
     revenue = float(ws.cell(total_row, 6).value or 0)
     shares = calculation.revenue_shares()

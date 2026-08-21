@@ -75,15 +75,15 @@ class RevenueShareMetricTests(unittest.TestCase):
         )
         self.assertEqual(report_total_value(report), 290)
 
-    def test_history_uses_product_profitability_and_total_net_margin(self) -> None:
+    def test_history_uses_report_profitability_and_total_net_margin(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Database(Path(directory) / "app.sqlite3")
             run_id = database.save_run(calculation(), {})
 
             summary = next(run for run in database.list_runs() if run.id == run_id)
 
-            self.assertEqual(summary.net_profit, 340)
-            self.assertAlmostEqual(summary.profitability, 1.7)
+            self.assertEqual(summary.net_profit, 290)
+            self.assertAlmostEqual(summary.profitability, 1.45)
             self.assertAlmostEqual(summary.commission_share, 0.20)
             self.assertAlmostEqual(summary.logistics_share, 0.08)
             self.assertAlmostEqual(summary.points_share, 0.02)
@@ -105,7 +105,8 @@ class RevenueShareMetricTests(unittest.TestCase):
                 self.assertAlmostEqual(sheet["AJ5"].value, 0.02)
                 self.assertAlmostEqual(sheet["AK5"].value, 0.34)
                 self.assertAlmostEqual(sheet["AK7"].value, 0.29)
-                self.assertEqual(sheet["Y7"].value, sheet["Y6"].value)
+                self.assertAlmostEqual(sheet["Y6"].value, 1.7)
+                self.assertAlmostEqual(sheet["Y7"].value, 1.45)
                 self.assertEqual(sheet["AK7"].number_format, "0.00%")
             finally:
                 workbook.close()

@@ -693,10 +693,10 @@ class Database:
                 """
                 SELECT r.id, r.created_at, r.period_start, r.period_end, r.source_count,
                        r.units, r.revenue,
-                       r.net_profit - r.unallocated_total AS net_profit,
+                       r.net_profit AS net_profit,
                        r.unallocated_total, r.status, r.report_name,
                        CASE WHEN r.cost_sold = 0 THEN 0
-                            ELSE (r.net_profit - r.unallocated_total) / r.cost_sold
+                            ELSE r.net_profit / r.cost_sold
                        END AS profitability,
                        CASE WHEN r.revenue = 0 THEN 0
                             ELSE -COALESCE(p.commission, 0) / r.revenue

@@ -146,6 +146,8 @@ class WBServiceExportTests(unittest.TestCase):
             self.assertEqual(workbook.sheetnames, ["Итог", "Разбивка", "Справочник операций"])
             self.assertEqual(workbook["Итог"]["A5"].value, "A")
             self.assertEqual(workbook["Итог"]["T5"].value, 50)
+            self.assertAlmostEqual(workbook["Итог"]["Y6"].value, 4.4)
+            self.assertAlmostEqual(workbook["Итог"]["Y7"].value, 4.15)
             self.assertEqual(workbook["Разбивка"]["C3"].value, -50)
             self.assertEqual(workbook["Справочник операций"]["A2"].value, "Продажа")
             workbook.close()
