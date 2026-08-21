@@ -96,17 +96,17 @@ class RevenueShareMetricTests(unittest.TestCase):
             workbook = load_workbook(destination, data_only=False)
             try:
                 sheet = workbook["Итог"]
-                self.assertEqual(sheet["AC4"].value, "Средняя комиссия, % от выручки")
-                self.assertEqual(sheet["AD4"].value, "Логистика, % от выручки")
-                self.assertEqual(sheet["AE4"].value, "Баллы, % от выручки")
-                self.assertEqual(sheet["AF4"].value, "Чистая прибыль, % от выручки")
-                self.assertAlmostEqual(sheet["AC5"].value, 0.20)
-                self.assertAlmostEqual(sheet["AD5"].value, 0.08)
-                self.assertAlmostEqual(sheet["AE5"].value, 0.02)
-                self.assertAlmostEqual(sheet["AF5"].value, 0.34)
-                self.assertAlmostEqual(sheet["AF7"].value, 0.29)
+                self.assertEqual(sheet["AH4"].value, "Средняя комиссия, % от выручки")
+                self.assertEqual(sheet["AI4"].value, "Логистика, % от выручки")
+                self.assertEqual(sheet["AJ4"].value, "Баллы, % от выручки")
+                self.assertEqual(sheet["AK4"].value, "Чистая прибыль, % от выручки")
+                self.assertAlmostEqual(sheet["AH5"].value, 0.20)
+                self.assertAlmostEqual(sheet["AI5"].value, 0.08)
+                self.assertAlmostEqual(sheet["AJ5"].value, 0.02)
+                self.assertAlmostEqual(sheet["AK5"].value, 0.34)
+                self.assertAlmostEqual(sheet["AK7"].value, 0.29)
                 self.assertEqual(sheet["Y7"].value, sheet["Y6"].value)
-                self.assertEqual(sheet["AF7"].number_format, "0.00%")
+                self.assertEqual(sheet["AK7"].number_format, "0.00%")
             finally:
                 workbook.close()
 

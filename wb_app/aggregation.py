@@ -54,6 +54,12 @@ def aggregate_calculations(calculations: list[RunCalculation]) -> RunCalculation
                     category=source.category,
                     material_cost=source.material_cost,
                     labor_cost=source.labor_cost,
+                    main_units=0.0,
+                    buyout_units=0.0,
+                    main_revenue=0.0,
+                    buyout_revenue=0.0,
+                    main_seller_payout=0.0,
+                    scenario_market_revenue=0.0,
                 )
                 rows[source.article] = target
             else:
@@ -68,6 +74,25 @@ def aggregate_calculations(calculations: list[RunCalculation]) -> RunCalculation
                     field_name,
                     float(getattr(target, field_name)) + float(getattr(source, field_name)),
                 )
+            target.main_units = float(target.main_units or 0.0) + source.main_units_total
+            target.buyout_units = float(target.buyout_units or 0.0) + source.buyout_units_total
+            target.main_revenue = (
+                float(target.main_revenue or 0.0) + source.main_revenue_total
+            )
+            target.buyout_revenue = (
+                float(target.buyout_revenue or 0.0) + source.buyout_revenue_total
+            )
+            target.main_seller_payout = (
+                float(target.main_seller_payout or 0.0)
+                + (
+                    float(source.main_seller_payout)
+                    if source.main_seller_payout is not None
+                    else source.seller_payout
+                )
+            )
+            target.scenario_market_revenue = (
+                float(target.scenario_market_revenue or 0.0) + source.pricing_revenue
+            )
             material_sold[source.article] += source.material_sold
             labor_sold[source.article] += source.labor_sold
             taxes[source.article] += source.tax(calculation.tax_rate)
@@ -130,5 +155,10 @@ def aggregate_calculations(calculations: list[RunCalculation]) -> RunCalculation
             warning
             for calculation in ordered
             for warning in calculation.source_period_warnings
+        ],
+        buyout_control_warnings=[
+            warning
+            for calculation in ordered
+            for warning in calculation.buyout_control_warnings
         ],
     )

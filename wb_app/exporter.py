@@ -19,7 +19,7 @@ HEADERS = [
     "Категория",
     "Себестоимость, руб.",
     "Продажи, шт.",
-    "Цена розничная, руб.",
+    "Выручка, руб.",
     "WB реализовал, руб.",
     "К перечислению продавцу, руб.",
     "Комиссия WB (справочно), руб.",
@@ -42,6 +42,11 @@ HEADERS = [
     "Средняя розничная цена, руб.",
     "Плановая цена, руб.",
     "Плановая чистая прибыль на ед., руб.",
+    "Продажи основные, шт.",
+    "Продажи по выкупам, шт.",
+    "Выручка основная, руб.",
+    "Выручка по выкупам, руб.",
+    "Цена покупателя (GMV), руб.",
     "Средняя комиссия, % от выручки",
     "Логистика, % от выручки",
     "Баллы, % от выручки",
@@ -118,11 +123,23 @@ def _fill_report_sheet(
     ws["H2"] = calculation.unallocated_total
     ws["J2"] = "Чистая прибыль с нераспределенными"
     ws["K2"] = totals["net_profit"]
-    ws["M2"] = "Контроль исходных файлов"
+    channel_model = any(
+        item.main_revenue is not None or item.buyout_revenue is not None
+        for item in calculation.products
+    )
+    ws["M2"] = (
+        "Контроль модели MAIN + BUYOUT"
+        if channel_model
+        else "Контроль исходных файлов"
+    )
     source_total = (
-        source_control_total
-        if source_control_total is not None
-        else sum(source.total_amount for source in calculation.source_files)
+        totals["financial_result"]
+        if channel_model
+        else (
+            source_control_total
+            if source_control_total is not None
+            else sum(source.total_amount for source in calculation.source_files)
+        )
     )
     ws["N2"] = source_total
     ws["P2"] = "Отклонение"
@@ -142,7 +159,7 @@ def _fill_report_sheet(
 
     total_row = 5 + len(calculation.products)
     ws.cell(total_row, 1, "Итого по товарам")
-    for column in range(5, 25):
+    for column in tuple(range(5, 25)) + tuple(range(29, 34)):
         ws.cell(
             total_row,
             column,
@@ -176,11 +193,11 @@ def _fill_report_sheet(
         shares["logistics_share"],
         shares["points_share"],
     )
-    for offset, value in enumerate(share_values, start=29):
+    for offset, value in enumerate(share_values, start=34):
         ws.cell(total_row, offset, value)
         ws.cell(total_row + 1, offset, value)
-    ws.cell(total_row, 32, product_net_margin)
-    ws.cell(total_row + 1, 32, shares["net_margin"])
+    ws.cell(total_row, 37, product_net_margin)
+    ws.cell(total_row + 1, 37, shares["net_margin"])
 
     _style_sheet(ws, total_row + 1, len(HEADERS))
     ws.freeze_panes = "D5"
@@ -201,7 +218,7 @@ def _write_product_row(
         result.category,
         result.total_cost,
         result.units,
-        result.retail_price_total,
+        result.revenue_including_points,
         result.realized_price_total,
         result.seller_payout,
         result.wb_commission,
@@ -224,6 +241,11 @@ def _write_product_row(
         result.average_price(),
         scenario.planned_price,
         scenario.net_profit_per_unit,
+        result.main_units_total,
+        result.buyout_units_total,
+        result.main_revenue_total,
+        result.buyout_revenue_total,
+        result.retail_price_total,
         result.commission_share(),
         result.logistics_share(),
         result.points_share(),
@@ -311,7 +333,7 @@ def _style_sheet(ws, last_row: int, last_column: int) -> None:
         for column in range(4, last_column + 1):
             ws.cell(row, column).number_format = "#,##0.00"
         ws.cell(row, 25).number_format = "0.00%"
-        for column in range(29, 33):
+        for column in range(34, 38):
             ws.cell(row, column).number_format = "0.00%"
     ws["E2"].number_format = "0.00%"
 

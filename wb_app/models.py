@@ -110,6 +110,21 @@ class AccrualRow:
 
 
 @dataclass(slots=True)
+class BuyoutNoticeRow:
+    """One product line from a WB buyout notice XLSX."""
+
+    source_name: str
+    sheet_name: str
+    row_number: int
+    report_number: str
+    notice_date: date | None
+    article: str
+    product_name: str
+    quantity: float
+    amount: float
+
+
+@dataclass(slots=True)
 class RealizationRow:
     """Compatibility placeholder; WB imports do not use a separate sales file."""
 
@@ -133,6 +148,7 @@ class ParsedSource:
     sheet_name: str
     header_row: int
     accrual_rows: list[AccrualRow] = field(default_factory=list)
+    buyout_notice_rows: list[BuyoutNoticeRow] = field(default_factory=list)
     realization_rows: list[RealizationRow] = field(default_factory=list)
     period_start: date | None = None
     period_end: date | None = None
@@ -144,10 +160,12 @@ class ParsedSource:
 
     @property
     def row_count(self) -> int:
-        return len(self.accrual_rows)
+        return len(self.accrual_rows) + len(self.buyout_notice_rows)
 
     @property
     def total_amount(self) -> float:
+        if self.buyout_notice_rows:
+            return sum(row.amount for row in self.buyout_notice_rows)
         return sum(row.amount for row in self.accrual_rows)
 
 
@@ -185,6 +203,14 @@ class ProductResult:
     other: float = 0.0                   # other mapped cash impact
     financial_result: float = 0.0
     carrier_reimbursement: float = 0.0   # neutral control field
+    # v0.2.5 channel model. None means a legacy saved report that predates the
+    # MAIN/BUYOUT split; its previous revenue and quantity remain readable.
+    main_units: float | None = None
+    buyout_units: float | None = None
+    main_revenue: float | None = None
+    buyout_revenue: float | None = None
+    main_seller_payout: float | None = None
+    scenario_market_revenue: float | None = None
     material_sold_override: float | None = None
     labor_sold_override: float | None = None
     tax_override: float | None = None
@@ -307,11 +333,50 @@ class ProductResult:
 
     @property
     def revenue_including_points(self) -> float:
-        return self.retail_price_total
+        if self.main_revenue is None and self.buyout_revenue is None:
+            return self.retail_price_total
+        return float(self.main_revenue or 0.0) + float(self.buyout_revenue or 0.0)
 
     @property
     def taxable_income(self) -> float:
-        return self.retail_price_total
+        return self.revenue_including_points
+
+    @property
+    def main_units_total(self) -> float:
+        if self.main_units is None and self.buyout_units is None:
+            return self.units
+        return float(self.main_units or 0.0)
+
+    @property
+    def buyout_units_total(self) -> float:
+        return float(self.buyout_units or 0.0)
+
+    @property
+    def main_revenue_total(self) -> float:
+        if self.main_revenue is None and self.buyout_revenue is None:
+            return self.revenue_including_points
+        return float(self.main_revenue or 0.0)
+
+    @property
+    def buyout_revenue_total(self) -> float:
+        return float(self.buyout_revenue or 0.0)
+
+    @property
+    def scenario_receipt(self) -> float:
+        """Variable receipt used by the combined price scenario.
+
+        MAIN contributes the payout after commission. BUYOUT contributes the
+        contractual notice price, which already embeds its linked deductions.
+        """
+        if self.main_seller_payout is None:
+            return self.seller_payout
+        return float(self.main_seller_payout) + self.buyout_revenue_total
+
+    @property
+    def pricing_revenue(self) -> float:
+        if self.scenario_market_revenue is None:
+            return self.retail_price_total
+        return float(self.scenario_market_revenue)
 
     def tax(self, rate: float) -> float:
         if self.tax_override is not None:
@@ -322,7 +387,7 @@ class ProductResult:
         return self.financial_result - self.cost_sold - self.tax(rate)
 
     def average_price(self) -> float | None:
-        return self.retail_price_total / self.units if self.units else None
+        return self.pricing_revenue / self.units if self.units else None
 
     def profit_per_unit(self) -> float:
         return self.financial_result / self.units if self.units else 0.0
@@ -368,6 +433,7 @@ class RunCalculation:
     realization_revenue: float = 0.0
     realization_units: float = 0.0
     source_period_warnings: list[str] = field(default_factory=list)
+    buyout_control_warnings: list[str] = field(default_factory=list)
 
     def totals(self) -> dict[str, float]:
         return {

@@ -11,10 +11,11 @@ from typing import Iterable
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
-from .models import AccrualRow, ParsedSource, RealizationRow
+from .models import AccrualRow, BuyoutNoticeRow, ParsedSource, RealizationRow
 
 
 REPORT_WEEKLY = "WEEKLY_WB"
+REPORT_BUYOUT_NOTICE = "BUYOUT_NOTICE_WB"
 # Compatibility constants used by inherited UI/service code.
 REPORT_ACCRUAL = REPORT_WEEKLY
 REPORT_REALIZATION = "UNUSED_WB_REALIZATION"
@@ -168,7 +169,7 @@ def _required(columns: dict[str, int], caption: str, *aliases: str) -> int:
     return value
 
 
-def _detect_sheet(workbook) -> tuple[object, int]:
+def _detect_weekly_sheet(workbook) -> tuple[object, int]:
     required = (
         "Артикул поставщика",
         "Обоснование для оплаты",
@@ -180,8 +181,32 @@ def _detect_sheet(workbook) -> tuple[object, int]:
             if all(_find(columns, caption) for caption in required):
                 return ws, row_number
     raise ReportFormatError(
-        "Тип файла не определен. Выберите еженедельный детализированный отчет Wildberries в XLSX."
+        "Еженедельный детализированный отчет WB не найден."
     )
+
+
+def _notice_columns(ws, row_number: int) -> dict[str, int]:
+    columns = _row_caption_map(ws, row_number)
+    result: dict[str, int] = {}
+    for caption, column in columns.items():
+        if caption == normalize_text("Артикул"):
+            result["article"] = column
+        elif caption.startswith(normalize_text("Наименование")):
+            result["name"] = column
+        elif caption == normalize_text("Количество"):
+            result["quantity"] = column
+        elif caption.startswith(normalize_text("Сумма выкупа")):
+            result["amount"] = column
+    return result
+
+
+def _detect_notice_sheet(workbook) -> tuple[object, int]:
+    for ws in workbook.worksheets:
+        for row_number in range(1, min(ws.max_row, 20) + 1):
+            columns = _notice_columns(ws, row_number)
+            if {"article", "quantity", "amount"}.issubset(columns):
+                return ws, row_number
+    raise ReportFormatError("Уведомление о выкупе WB не найдено.")
 
 
 def parse_report(path: str | Path) -> ParsedSource:
@@ -195,16 +220,30 @@ def parse_report(path: str | Path) -> ParsedSource:
     except Exception as exc:
         raise ReportFormatError(f"Не удалось прочитать {source_path.name}: {exc}") from exc
     try:
-        ws, header_row = _detect_sheet(workbook)
+        try:
+            ws, header_row = _detect_weekly_sheet(workbook)
+            report_type = REPORT_WEEKLY
+        except ReportFormatError:
+            try:
+                ws, header_row = _detect_notice_sheet(workbook)
+                report_type = REPORT_BUYOUT_NOTICE
+            except ReportFormatError as exc:
+                raise ReportFormatError(
+                    "Тип файла не определен. Выберите еженедельный детализированный "
+                    "отчет WB или уведомление о выкупе WB в XLSX."
+                ) from exc
         parsed = ParsedSource(
             path=source_path,
             file_hash=sha256_file(source_path),
-            report_type=REPORT_WEEKLY,
+            report_type=report_type,
             sheet_name=ws.title,
             header_row=header_row,
             report_number=_report_number(source_path.name),
         )
-        _parse_weekly(ws, header_row, parsed)
+        if report_type == REPORT_BUYOUT_NOTICE:
+            _parse_buyout_notice(ws, header_row, parsed)
+        else:
+            _parse_weekly(ws, header_row, parsed)
         return parsed
     finally:
         workbook.close()
@@ -331,6 +370,61 @@ def _parse_weekly(ws, header_row: int, parsed: ParsedSource) -> None:
         if countries and countries.issubset(eaeu_non_russia)
         else "основной"
     )
+
+
+def _parse_buyout_notice(ws, header_row: int, parsed: ParsedSource) -> None:
+    columns = _notice_columns(ws, header_row)
+    title_text = " ".join(
+        display_text(cell.value)
+        for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, header_row))
+        for cell in row
+        if cell.value not in (None, "")
+    )
+    title_match = re.search(
+        r"уведомление\s+о\s+выкупе\s+№\s*(\d+)\s+от\s+(\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4})",
+        title_text,
+        flags=re.IGNORECASE,
+    )
+    notice_date: date | None = None
+    if title_match:
+        parsed.report_number = title_match.group(1)
+        notice_date = as_date(title_match.group(2))
+    for row_number in range(header_row + 1, ws.max_row + 1):
+        first_value = normalize_text(ws.cell(row_number, 1).value)
+        if first_value.startswith(normalize_text("Итого")):
+            break
+        article = normalize_sku(ws.cell(row_number, columns["article"]).value)
+        quantity_value = ws.cell(row_number, columns["quantity"]).value
+        amount_value = ws.cell(row_number, columns["amount"]).value
+        if not article or not is_numeric(quantity_value) or not is_numeric(amount_value):
+            continue
+        parsed.buyout_notice_rows.append(
+            BuyoutNoticeRow(
+                source_name=parsed.path.name,
+                sheet_name=ws.title,
+                row_number=row_number,
+                report_number=parsed.report_number,
+                notice_date=notice_date,
+                article=article,
+                product_name=(
+                    display_text(ws.cell(row_number, columns["name"]).value)
+                    if columns.get("name")
+                    else article
+                ),
+                quantity=as_float(quantity_value),
+                amount=as_float(amount_value),
+            )
+        )
+    if not parsed.buyout_notice_rows:
+        raise ReportFormatError(f"В уведомлении о выкупе нет товарных строк: {parsed.path.name}")
+    if not parsed.report_number:
+        raise ReportFormatError(
+            f"Не удалось определить номер уведомления о выкупе: {parsed.path.name}"
+        )
+    parsed.report_variant = "уведомление о выкупе"
+    if notice_date is not None:
+        parsed.period_start = notice_date - timedelta(days=notice_date.weekday())
+        parsed.period_end = parsed.period_start + timedelta(days=6)
 
 
 def _dominant_iso_week(dates: list[date]) -> tuple[date | None, date | None]:

@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from wb_app.calculator import calculate_run, calculate_scenario
-from wb_app.models import AccrualRow, ParsedSource, Product
+from wb_app.models import AccrualRow, BuyoutNoticeRow, ParsedSource, Product
 
 
 def operation(
@@ -24,9 +24,10 @@ def operation(
     commission: float = 0,
     acquiring: float = 0,
     carrier: float = 0,
+    source_name: str = "weekly.xlsx",
 ) -> AccrualRow:
     return AccrualRow(
-        source_name="weekly.xlsx",
+        source_name=source_name,
         sheet_name="Sheet1",
         row_number=row,
         report_number="1",
@@ -87,10 +88,12 @@ class WBCalculatorTests(unittest.TestCase):
         self.assertEqual(row.loyalty_compensation, 30)
         self.assertEqual(row.carrier_reimbursement, 100)
         self.assertEqual(row.financial_result, 630)
-        self.assertEqual(row.net_profit(0.06), 470)
+        self.assertEqual(row.main_revenue_total, 800)
+        self.assertEqual(row.taxable_income, 800)
+        self.assertEqual(row.net_profit(0.06), 482)
         self.assertEqual(calculation.unallocated_total, -50)
         self.assertEqual(calculation.unallocated["Хранение"], (1, -50))
-        self.assertEqual(calculation.totals()["net_profit"], 420)
+        self.assertEqual(calculation.totals()["net_profit"], 432)
 
     def test_article_expense_is_kept_even_without_sales(self) -> None:
         source = ParsedSource(
@@ -111,7 +114,7 @@ class WBCalculatorTests(unittest.TestCase):
             sheet_name="Sheet1", header_row=1,
             period_start=date(2026, 8, 3), period_end=date(2026, 8, 9),
             accrual_rows=[
-                operation(2, "Продажа", document="Продажа", quantity=2, retail=2000, payout=1400),
+                operation(2, "Продажа", document="Продажа", quantity=2, retail=2000, realized=2000, payout=1400),
                 operation(3, "Логистика", logistics=200),
             ],
         )
@@ -121,6 +124,56 @@ class WBCalculatorTests(unittest.TestCase):
         self.assertAlmostEqual(scenario.planned_commission or 0, 1680)
         self.assertAlmostEqual(scenario.wb_costs_without_commission or 0, 200)
         self.assertAlmostEqual(scenario.net_profit_total or 0, 1136)
+
+    def test_combines_main_revenue_with_notice_buyout_without_return_reversal(self) -> None:
+        main = ParsedSource(
+            path=Path("main.xlsx"), file_hash="main", report_type="WEEKLY_WB",
+            sheet_name="Sheet1", header_row=1, report_number="1", report_variant="основной",
+            period_start=date(2026, 8, 3), period_end=date(2026, 8, 9),
+            accrual_rows=[
+                operation(2, "Продажа", document="Продажа", quantity=2, retail=2000, realized=1600, payout=1400),
+                operation(3, "Возврат", document="Возврат", quantity=1, retail=1000, realized=800, payout=700),
+                operation(4, "Логистика", logistics=100),
+            ],
+        )
+        buyout_rows = [
+            operation(2, "Продажа", document="Продажа", quantity=3, retail=3000, realized=2400, payout=1800, source_name="buyout.xlsx"),
+            operation(3, "Возврат", document="Возврат", quantity=1, retail=1000, realized=800, payout=600, source_name="buyout.xlsx"),
+            operation(4, "Логистика", logistics=800, source_name="buyout.xlsx"),
+        ]
+        buyout = ParsedSource(
+            path=Path("buyout.xlsx"), file_hash="buyout", report_type="WEEKLY_WB",
+            sheet_name="Sheet1", header_row=1, report_number="2", report_variant="по выкупам",
+            period_start=date(2026, 8, 3), period_end=date(2026, 8, 9),
+            accrual_rows=buyout_rows,
+        )
+        notice = ParsedSource(
+            path=Path("notice.xlsx"), file_hash="notice", report_type="BUYOUT_NOTICE_WB",
+            sheet_name="Sheet1", header_row=10, report_number="2",
+            report_variant="уведомление о выкупе",
+            period_start=date(2026, 8, 3), period_end=date(2026, 8, 9),
+            buyout_notice_rows=[
+                BuyoutNoticeRow("notice.xlsx", "Sheet1", 11, "2", date(2026, 8, 3), "A", "Товар A", 3, 1000),
+            ],
+        )
+
+        calculation = calculate_run(
+            [main, buyout, notice],
+            {"A": Product("A", "Товар A", material_cost=100)},
+            0.06,
+        )
+        result = calculation.products[0]
+
+        self.assertEqual(result.main_units_total, 1)
+        self.assertEqual(result.buyout_units_total, 3)
+        self.assertEqual(result.units, 4)
+        self.assertEqual(result.main_revenue_total, 800)
+        self.assertEqual(result.buyout_revenue_total, 1000)
+        self.assertEqual(result.taxable_income, 1800)
+        self.assertEqual(result.financial_result, 1600)
+        self.assertEqual(result.cost_sold, 400)
+        self.assertEqual(result.net_profit(0.06), 1092)
+        self.assertEqual(calculation.buyout_control_warnings, [])
 
 
 if __name__ == "__main__":

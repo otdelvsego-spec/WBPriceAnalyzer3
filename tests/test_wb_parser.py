@@ -53,6 +53,35 @@ class WBParserTests(unittest.TestCase):
             self.assertEqual(headers[1], "A")
             self.assertEqual(rows[1][2], "100")
 
+    def test_parses_buyout_notice_rows_and_total(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            path = Path(temp_name) / "Уведомление о выкупе №456 от 2026-08-10.xlsx"
+            workbook = Workbook()
+            ws = workbook.active
+            ws["A3"] = "УВЕДОМЛЕНИЕ О ВЫКУПЕ №456 от 2026-08-10"
+            ws.append([])
+            ws.append([])
+            ws.append([])
+            ws.append([])
+            ws.append([])
+            ws.append([])
+            ws.append(["№ п/п", "Артикул", "Наименование", "Количество", "Сумма выкупа, руб., (вкл. НДС)"])
+            ws.append([1, "A", "Товар A", 2, "1 234,56"])
+            ws.append(["Итого:", None, None, 2, "1 234,56"])
+            workbook.save(path)
+            workbook.close()
+
+            parsed = parse_report(path)
+
+            self.assertEqual(parsed.report_type, "BUYOUT_NOTICE_WB")
+            self.assertEqual(parsed.report_variant, "уведомление о выкупе")
+            self.assertEqual(parsed.report_number, "456")
+            self.assertEqual(parsed.period_start.isoformat(), "2026-08-10")
+            self.assertEqual(parsed.period_end.isoformat(), "2026-08-16")
+            self.assertEqual(parsed.row_count, 1)
+            self.assertAlmostEqual(parsed.total_amount, 1234.56)
+            self.assertEqual(parsed.buyout_notice_rows[0].quantity, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,6 +30,9 @@ from .exporter import export_calculation, export_run, suggested_export_name
 from .models import Product, ProductResult, RunCalculation, RunSummary, ScenarioRow, UnknownProduct
 from .ordering import insert_at_group_end
 from .service import (
+    NOTICE_MISSING_BUYOUT_NOTICE,
+    NOTICE_MISSING_MAIN,
+    NOTICE_ORPHAN_BUYOUT_NOTICE,
     NOTICE_PERIOD_MISMATCH,
     NOTICE_UNKNOWN_COLUMNS,
     AppService,
@@ -96,7 +99,12 @@ OVERVIEW_COLUMN_SPECS = (
     ("tax", "Налог", 125),
     ("taxable", "Налогооблагаемый доход", 125),
     ("units", "Продажи", 125),
-    ("revenue", "Цена розничная, итого", 125),
+    ("revenue", "Выручка, итого", 125),
+    ("main_units", "Продажи основные", 135),
+    ("buyout_units", "Продажи по выкупам", 145),
+    ("main_revenue", "Выручка основная", 145),
+    ("buyout_revenue", "Выручка по выкупам", 155),
+    ("customer_gmv", "Цена покупателя (GMV)", 155),
     ("revenue_no_points", "WB реализовал, итого", 125),
     ("partner", "К перечислению продавцу", 125),
     ("points", "Комиссия WB (справочно)", 125),
@@ -1245,7 +1253,11 @@ class WBPriceAnalyzerApp(tk.Tk):
             iid = str(row["id"])
             self.source_by_iid[iid] = row
             variant = str(row.get("report_variant") or "основной")
-            report_type = f"Детализированный ({variant})"
+            report_type = (
+                "Уведомление о выкупе"
+                if str(row.get("report_type")) == "BUYOUT_NOTICE_WB"
+                else f"Детализированный ({variant})"
+            )
             period = _period_text(row.get("period_start"), row.get("period_end"))
             self.source_tree.insert(
                 "",
@@ -2451,8 +2463,6 @@ class WBPriceAnalyzerApp(tk.Tk):
             if batch is None or not batch.sessions:
                 raise RuntimeError("Не удалось подготовить импорт")
             sessions = batch.sessions
-            if any(not session.sources or not session.has_accrual for session in sessions):
-                raise ValueError("Не найден еженедельный детализированный отчет WB")
 
             notices_by_session = [session.import_notices() for session in sessions]
             warnings_by_session = [
@@ -2464,6 +2474,23 @@ class WBPriceAnalyzerApp(tk.Tk):
                 for session, notices in zip(sessions, notices_by_session)
                 for notice in notices
                 if notice.blocking
+            ]
+            fatal_kinds = {
+                NOTICE_MISSING_MAIN,
+                NOTICE_MISSING_BUYOUT_NOTICE,
+                NOTICE_ORPHAN_BUYOUT_NOTICE,
+            }
+            fatal_messages = [
+                message for message, kind in blocking_notices if kind in fatal_kinds
+            ]
+            if fatal_messages:
+                raise ValueError(
+                    "Комплект файлов для расчета неполный:\n\n"
+                    + "\n".join(f"• {message}" for message in fatal_messages)
+                    + "\n\nДобавьте недостающие XLSX и повторите импорт."
+                )
+            blocking_notices = [
+                item for item in blocking_notices if item[1] not in fatal_kinds
             ]
             if blocking_notices:
                 dialog = ImportWarningDialog(self, blocking_notices)
@@ -3842,6 +3869,11 @@ def _result_values(result: ProductResult, tax_rate: float) -> tuple[object, ...]
         _money(result.tax(tax_rate)),
         _money(result.taxable_income),
         _number(result.units),
+        _money(result.revenue_including_points),
+        _number(result.main_units_total),
+        _number(result.buyout_units_total),
+        _money(result.main_revenue_total),
+        _money(result.buyout_revenue_total),
         _money(result.retail_price_total),
         _money(result.realized_price_total),
         _money(result.seller_payout),

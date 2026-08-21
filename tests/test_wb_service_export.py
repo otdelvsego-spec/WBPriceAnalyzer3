@@ -11,6 +11,7 @@ from wb_app.exporter import export_calculation
 from wb_app.models import ParsedSource, ProductResult, RunCalculation
 from wb_app.service import (
     NOTICE_CORRECTION_ROWS,
+    NOTICE_MISSING_BUYOUT_NOTICE,
     NOTICE_PERIOD_MISMATCH,
     NOTICE_UNKNOWN_COLUMNS,
     ImportSession,
@@ -25,15 +26,49 @@ def source(name: str, variant: str, start: date, end: date) -> ParsedSource:
     )
 
 
+def notice(report_number: str, start: date, end: date) -> ParsedSource:
+    return ParsedSource(
+        path=Path(f"notice-{report_number}.xlsx"),
+        file_hash=f"notice-{report_number}",
+        report_type="BUYOUT_NOTICE_WB",
+        sheet_name="Sheet1",
+        header_row=10,
+        period_start=start,
+        period_end=end,
+        report_number=report_number,
+        report_variant="уведомление о выкупе",
+    )
+
+
 class WBServiceExportTests(unittest.TestCase):
     def test_groups_main_and_buyout_by_week(self) -> None:
         first = source("main.xlsx", "основной", date(2026, 8, 3), date(2026, 8, 9))
         second = source("buyout.xlsx", "по выкупам", date(2026, 8, 3), date(2026, 8, 9))
+        second.report_number = "2"
+        buyout_notice = notice("2", date(2026, 8, 3), date(2026, 8, 9))
         next_week = source("next.xlsx", "основной", date(2026, 8, 10), date(2026, 8, 16))
-        sessions = split_import_sources([next_week, second, first])
+        sessions = split_import_sources([next_week, buyout_notice, second, first])
         self.assertEqual(len(sessions), 2)
-        self.assertEqual(len(sessions[0].sources), 2)
+        self.assertEqual(len(sessions[0].sources), 3)
         self.assertTrue(sessions[0].has_realization)
+        self.assertTrue(sessions[0].has_buyout_notice)
+        self.assertFalse(
+            any(
+                item.kind == NOTICE_MISSING_BUYOUT_NOTICE
+                for item in sessions[0].import_notices()
+            )
+        )
+
+    def test_buyout_without_notice_is_blocking(self) -> None:
+        main = source("main.xlsx", "основной", date(2026, 8, 3), date(2026, 8, 9))
+        buyout = source("buyout.xlsx", "по выкупам", date(2026, 8, 3), date(2026, 8, 9))
+        buyout.report_number = "2"
+
+        notices = ImportSession([main, buyout], []).import_notices()
+
+        missing = next(item for item in notices if item.kind == NOTICE_MISSING_BUYOUT_NOTICE)
+        self.assertTrue(missing.blocking)
+        self.assertIn("№2", missing.message)
 
     def test_correction_rows_are_recorded_but_do_not_block_import(self) -> None:
         report = source("correction.xlsx", "основной", date(2026, 8, 10), date(2026, 8, 16))

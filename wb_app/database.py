@@ -160,6 +160,12 @@ class Database:
                     other REAL NOT NULL,
                     carrier_reimbursement REAL NOT NULL DEFAULT 0,
                     financial_result REAL NOT NULL,
+                    main_units REAL,
+                    buyout_units REAL,
+                    main_revenue REAL,
+                    buyout_revenue REAL,
+                    main_seller_payout REAL,
+                    scenario_market_revenue REAL,
                     PRIMARY KEY (run_id, article)
                 );
 
@@ -218,6 +224,29 @@ class Database:
                 db.execute(
                     "ALTER TABLE product_results ADD COLUMN carrier_reimbursement REAL NOT NULL DEFAULT 0"
                 )
+            for column in (
+                "main_units",
+                "buyout_units",
+                "main_revenue",
+                "buyout_revenue",
+                "main_seller_payout",
+                "scenario_market_revenue",
+            ):
+                if column not in result_columns:
+                    db.execute(f"ALTER TABLE product_results ADD COLUMN {column} REAL")
+            db.execute(
+                """
+                UPDATE runs
+                SET status = 'Требует пересчета'
+                WHERE status = 'Готов'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM product_results AS pr
+                      WHERE pr.run_id = runs.id
+                        AND pr.main_revenue IS NULL
+                  )
+                """
+            )
             run_columns = {row[1] for row in db.execute("PRAGMA table_info(runs)")}
             if "report_name" not in run_columns:
                 db.execute("ALTER TABLE runs ADD COLUMN report_name TEXT")
@@ -582,9 +611,12 @@ class Database:
                         run_id, article, name, category, material_cost, labor_cost, units,
                         revenue_no_points, partner_programs, points, commission, processing,
                         delivery, logistics, reverse_logistics, returns_cancels, acquiring,
-                        stars, packaging, compensation, other, carrier_reimbursement, financial_result
+                        stars, packaging, compensation, other, carrier_reimbursement, financial_result,
+                        main_units, buyout_units, main_revenue, buyout_revenue, main_seller_payout
+                        , scenario_market_revenue
                     ) VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?
                     )
                     """,
                     _product_result_tuple(run_id, item),
@@ -618,6 +650,12 @@ class Database:
                 db.execute(
                     "INSERT INTO quality_events(run_id, severity, event_type, message) "
                     "VALUES (?, 'Предупреждение', 'Несовпадение периодов', ?)",
+                    (run_id, message),
+                )
+            for message in calculation.buyout_control_warnings:
+                db.execute(
+                    "INSERT INTO quality_events(run_id, severity, event_type, message) "
+                    "VALUES (?, 'Предупреждение', 'Контроль выкупа', ?)",
                     (run_id, message),
                 )
             hash_counts = Counter(source.file_hash for source in calculation.source_files)
@@ -784,6 +822,11 @@ class Database:
             for row in events
             if row["event_type"] == "Несовпадение периодов"
         ]
+        buyout_control_warnings = [
+            str(row["message"])
+            for row in events
+            if row["event_type"] == "Контроль выкупа"
+        ]
         return RunCalculation(
             run_id=run_id,
             period_start=_parse_date(run["period_start"]),
@@ -800,6 +843,7 @@ class Database:
             realization_revenue=float(run["realization_revenue"]),
             realization_units=float(run["realization_units"]),
             source_period_warnings=source_period_warnings,
+            buyout_control_warnings=buyout_control_warnings,
         )
 
     def list_source_files(self, run_id: int) -> list[dict[str, object]]:
@@ -945,6 +989,12 @@ def _product_result_tuple(run_id: int, item: ProductResult) -> tuple[object, ...
         item.other,
         item.carrier_reimbursement,
         item.financial_result,
+        item.main_units,
+        item.buyout_units,
+        item.main_revenue,
+        item.buyout_revenue,
+        item.main_seller_payout,
+        item.scenario_market_revenue,
     )
 
 
@@ -972,4 +1022,18 @@ def _row_to_product_result(row: sqlite3.Row) -> ProductResult:
         other=float(row["other"]),
         carrier_reimbursement=float(row["carrier_reimbursement"]),
         financial_result=float(row["financial_result"]),
+        main_units=float(row["main_units"]) if row["main_units"] is not None else None,
+        buyout_units=float(row["buyout_units"]) if row["buyout_units"] is not None else None,
+        main_revenue=float(row["main_revenue"]) if row["main_revenue"] is not None else None,
+        buyout_revenue=float(row["buyout_revenue"]) if row["buyout_revenue"] is not None else None,
+        main_seller_payout=(
+            float(row["main_seller_payout"])
+            if row["main_seller_payout"] is not None
+            else None
+        ),
+        scenario_market_revenue=(
+            float(row["scenario_market_revenue"])
+            if row["scenario_market_revenue"] is not None
+            else None
+        ),
     )

@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import replace
 from datetime import date
 
-from .excel_reader import all_rows, normalize_text
+from .excel_reader import REPORT_BUYOUT_NOTICE, REPORT_WEEKLY, all_rows, normalize_text
 from .models import AccrualRow, ParsedSource, Product, ProductResult, RunCalculation, ScenarioRow, UnknownProduct
 
 
@@ -89,6 +89,21 @@ def discover_unknown_products(sources: list[ParsedSource], products: dict[str, P
         if not item.sku and row.nm_id:
             item.sku = row.nm_id
         item.source_names.add(row.source_name)
+    for source in sources:
+        for row in source.buyout_notice_rows:
+            if not row.article or row.article in products:
+                continue
+            item = unknown.setdefault(
+                row.article,
+                UnknownProduct(
+                    article=row.article,
+                    name=row.product_name or row.article,
+                    sku="",
+                ),
+            )
+            if item.name == item.article and row.product_name:
+                item.name = row.product_name
+            item.source_names.add(row.source_name)
     return sorted(unknown.values(), key=lambda item: item.article.casefold())
 
 
@@ -103,12 +118,23 @@ def _is_sale_document(row: AccrualRow) -> bool:
     }
 
 
-def _apply_row(result: ProductResult, row: AccrualRow) -> None:
+def _apply_row(result: ProductResult, row: AccrualRow, *, channel: str) -> None:
     sign = _document_sign(row)
     if _is_sale_document(row):
         # Quantity=2 on carrier reimbursement rows is explicitly not a sale.
-        if _type_key(row.payment_reason) in {_type_key("Продажа"), _type_key("Возврат")}:
-            result.units += sign * row.quantity
+        if (
+            channel == "main"
+            and _type_key(row.payment_reason) in {_type_key("Продажа"), _type_key("Возврат")}
+        ):
+            result.main_units = float(result.main_units or 0.0) + sign * row.quantity
+        if channel == "main":
+            result.main_revenue = float(result.main_revenue or 0.0) + sign * row.realized_price
+            result.scenario_market_revenue = (
+                float(result.scenario_market_revenue or 0.0) + sign * row.realized_price
+            )
+            result.main_seller_payout = (
+                float(result.main_seller_payout or 0.0) + sign * row.seller_payout
+            )
         result.retail_price_total += sign * row.retail_price
         result.realized_price_total += sign * row.realized_price
         result.seller_payout += sign * row.seller_payout
@@ -130,7 +156,26 @@ def _apply_row(result: ProductResult, row: AccrualRow) -> None:
         row.commission_adjustment + row.deductions + row.payout_fee
     )
     result.carrier_reimbursement += row.carrier_reimbursement
-    result.financial_result += row.amount
+    if channel == "main":
+        result.financial_result += row.amount
+
+
+def _buyout_extra_amount(row: AccrualRow) -> float:
+    """Cash impact not already embedded in a notice's contractual price."""
+    sign = _document_sign(row)
+    other_payout = row.seller_payout if not _is_sale_document(row) else 0.0
+    return (
+        other_payout
+        - row.penalty
+        - row.storage
+        - row.acceptance
+        - row.commission_adjustment
+        - row.deductions
+        + sign * row.loyalty_compensation
+        - sign * row.loyalty_fee
+        - sign * row.loyalty_points
+        - row.payout_fee
+    )
 
 
 def calculate_run(
@@ -145,6 +190,12 @@ def calculate_run(
         raise CalculationError("В выбранных файлах нет операций Wildberries")
 
     referenced_articles = {row.article for row in rows if row.article}
+    referenced_articles.update(
+        row.article
+        for source in sources
+        for row in source.buyout_notice_rows
+        if row.article
+    )
     calculation_products = {
         article: product
         for article, product in products.items()
@@ -158,6 +209,12 @@ def calculate_run(
             material_cost=product.material_cost,
             labor_cost=product.labor_cost,
             category=product.category,
+            main_units=0.0,
+            buyout_units=0.0,
+            main_revenue=0.0,
+            buyout_revenue=0.0,
+            main_seller_payout=0.0,
+            scenario_market_revenue=0.0,
         )
         for article, product in calculation_products.items()
     }
@@ -171,6 +228,11 @@ def calculate_run(
     skipped_total = 0.0
     unallocated_total = 0.0
 
+    source_variants = {
+        source.path.name: source.report_variant
+        for source in sources
+        if source.report_type == REPORT_WEEKLY
+    }
     for row in rows:
         type_key = _type_key(row.payment_reason) or "без обоснования"
         stat = stats_raw.setdefault(type_key, [row.payment_reason or "Без обоснования", 0, 0])
@@ -194,8 +256,107 @@ def calculate_run(
             skipped_total += row.amount
             continue
 
-        _apply_row(result, row)
+        channel = "buyout" if source_variants.get(row.source_name) == "по выкупам" else "main"
+        _apply_row(result, row, channel=channel)
         allocated_total += row.amount
+
+    buyout_sources = {
+        source.report_number: source
+        for source in sources
+        if source.report_type == REPORT_WEEKLY and source.report_variant == "по выкупам"
+    }
+    notice_sources = {
+        source.report_number: source
+        for source in sources
+        if source.report_type == REPORT_BUYOUT_NOTICE
+    }
+    missing_notices = sorted(set(buyout_sources) - set(notice_sources))
+    orphan_notices = sorted(set(notice_sources) - set(buyout_sources))
+    if missing_notices:
+        raise CalculationError(
+            "Не загружены уведомления о выкупе XLSX для отчетов №"
+            + ", №".join(missing_notices)
+        )
+    if orphan_notices:
+        raise CalculationError(
+            "Не загружены соответствующие детализированные отчеты по выкупам №"
+            + ", №".join(orphan_notices)
+        )
+
+    buyout_control_warnings: list[str] = []
+    for report_number, notice in notice_sources.items():
+        detail = buyout_sources[report_number]
+        rows_by_article: dict[str, list[AccrualRow]] = defaultdict(list)
+        for row in detail.accrual_rows:
+            if row.article:
+                rows_by_article[row.article].append(row)
+        notice_articles = {row.article for row in notice.buyout_notice_rows}
+        for article, linked_rows in rows_by_article.items():
+            result = results.get(article)
+            if result is None or article in skipped_articles:
+                continue
+            if article in notice_articles:
+                result.financial_result += sum(_buyout_extra_amount(row) for row in linked_rows)
+            else:
+                result.financial_result += sum(row.amount for row in linked_rows)
+                if any(_is_sale_document(row) and row.seller_payout for row in linked_rows):
+                    buyout_control_warnings.append(
+                        f"Выкуп №{report_number}, артикул {article}: в детализации есть "
+                        "продажа, но товар отсутствует в уведомлении."
+                    )
+        for notice_row in notice.buyout_notice_rows:
+            result = results.get(notice_row.article)
+            if result is None or notice_row.article in skipped_articles:
+                skipped_detail.setdefault(
+                    notice_row.article,
+                    f"{notice_row.article} — {notice_row.product_name or notice_row.article} "
+                    f"({notice_row.source_name}, строка {notice_row.row_number})",
+                )
+                skipped_amounts[notice_row.article] += notice_row.amount
+                continue
+            result.buyout_units = float(result.buyout_units or 0.0) + notice_row.quantity
+            result.buyout_revenue = float(result.buyout_revenue or 0.0) + notice_row.amount
+            result.financial_result += notice_row.amount
+
+            linked_rows = rows_by_article.get(notice_row.article, [])
+            gross_sales = sum(
+                row.quantity
+                for row in linked_rows
+                if _type_key(row.document_type) == _type_key("Продажа")
+                and _type_key(row.payment_reason) == _type_key("Продажа")
+            )
+            gross_market_revenue = sum(
+                row.realized_price
+                for row in linked_rows
+                if _type_key(row.document_type) == _type_key("Продажа")
+            )
+            result.scenario_market_revenue = (
+                float(result.scenario_market_revenue or 0.0)
+                + (gross_market_revenue or notice_row.amount)
+            )
+            # WB's contractual buyout price is bridged from gross sale payout
+            # less all linked logistics. A later customer return does not undo
+            # the already completed seller -> RWB buyout.
+            bridge = sum(
+                row.seller_payout
+                for row in linked_rows
+                if _type_key(row.document_type) == _type_key("Продажа")
+            ) - sum(row.logistics for row in linked_rows)
+            if abs(gross_sales - notice_row.quantity) > 0.001:
+                buyout_control_warnings.append(
+                    f"Выкуп №{report_number}, артикул {notice_row.article}: "
+                    f"количество в уведомлении {notice_row.quantity:g}, "
+                    f"продаж в детализации {gross_sales:g}."
+                )
+            if abs(bridge - notice_row.amount) > 0.01:
+                buyout_control_warnings.append(
+                    f"Выкуп №{report_number}, артикул {notice_row.article}: "
+                    f"цена уведомления {notice_row.amount:.2f} руб., "
+                    f"контроль по детализации {bridge:.2f} руб."
+                )
+
+    for result in results.values():
+        result.units = result.main_units_total + result.buyout_units_total
 
     source_total = sum(row.amount for row in rows)
     allocation_difference = source_total - allocated_total - unallocated_total - skipped_total
@@ -247,9 +408,10 @@ def calculate_run(
         source_files=sources,
         skipped_articles=skipped_detail,
         sku_conflicts=sku_conflicts,
-        realization_revenue=sum(result.realized_price_total for result in results.values()),
+        realization_revenue=sum(result.revenue_including_points for result in results.values()),
         realization_units=sum(result.units for result in results.values()),
         source_period_warnings=warnings,
+        buyout_control_warnings=buyout_control_warnings,
     )
 
 
@@ -281,9 +443,19 @@ def calculate_scenario(result: ProductResult, tax_rate: float, planned_price: fl
         )
 
     price_change = planned_price / current_price - 1 if current_price else None
-    payout_rate = result.seller_payout / result.retail_price_total if result.retail_price_total else 0.0
-    fixed_wb_costs = result.seller_payout - result.financial_result
-    planned_revenue = planned_price * result.units
+    seller_revenue_rate = (
+        result.revenue_including_points / result.pricing_revenue
+        if result.pricing_revenue
+        else 0.0
+    )
+    payout_rate = (
+        result.scenario_receipt / result.revenue_including_points
+        if result.revenue_including_points
+        else 0.0
+    )
+    fixed_wb_costs = result.scenario_receipt - result.financial_result
+    planned_market_revenue = planned_price * result.units
+    planned_revenue = planned_market_revenue * seller_revenue_rate
     planned_payout = planned_revenue * payout_rate
     taxable_base = planned_revenue
     tax = taxable_base * tax_rate

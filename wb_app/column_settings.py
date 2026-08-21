@@ -13,6 +13,18 @@ OVERVIEW_COLUMNS_SETTING = "overview_columns_v1"
 SCENARIO_COLUMNS_SETTING = "scenario_columns_v1"
 
 ColumnSpecs = tuple[tuple[str, str, int], ...]
+DEFAULT_HIDDEN_OVERVIEW_COLUMNS = {
+    "main_units",
+    "buyout_units",
+    "main_revenue",
+    "buyout_revenue",
+}
+
+
+def _default_visible(column_id: str, column_specs: ColumnSpecs) -> bool:
+    if column_specs is OVERVIEW_COLUMN_SPECS:
+        return column_id not in DEFAULT_HIDDEN_OVERVIEW_COLUMNS
+    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +36,10 @@ class ColumnPreference:
 def default_column_preferences(
     column_specs: ColumnSpecs = OVERVIEW_COLUMN_SPECS,
 ) -> list[ColumnPreference]:
-    return [ColumnPreference(column_id) for column_id, _heading, _width in column_specs]
+    return [
+        ColumnPreference(column_id, _default_visible(column_id, column_specs))
+        for column_id, _heading, _width in column_specs
+    ]
 
 
 def normalize_column_preferences(
@@ -60,7 +75,9 @@ def normalize_column_preferences(
 
     for column_id in available:
         if column_id not in seen:
-            result.append(ColumnPreference(column_id, True))
+            result.append(
+                ColumnPreference(column_id, _default_visible(column_id, column_specs))
+            )
 
     if not any(item.visible for item in result):
         return default_column_preferences(column_specs)

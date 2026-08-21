@@ -10,13 +10,16 @@ from pathlib import Path
 from .calculator import calculate_run, discover_unknown_products
 from .config import ensure_app_dirs
 from .database import Database
-from .excel_reader import REPORT_WEEKLY, parse_report
+from .excel_reader import REPORT_BUYOUT_NOTICE, REPORT_WEEKLY, parse_report
 from .models import ParsedSource, Product, RunCalculation, UnknownProduct
 
 
 NOTICE_PERIOD_MISMATCH = "period_mismatch"
 NOTICE_CORRECTION_ROWS = "correction_rows"
 NOTICE_UNKNOWN_COLUMNS = "unknown_columns"
+NOTICE_MISSING_MAIN = "missing_main"
+NOTICE_MISSING_BUYOUT_NOTICE = "missing_buyout_notice"
+NOTICE_ORPHAN_BUYOUT_NOTICE = "orphan_buyout_notice"
 
 
 @dataclass(slots=True, frozen=True)
@@ -41,6 +44,17 @@ class ImportSession:
         return any(source.report_variant == "по выкупам" for source in self.sources)
 
     @property
+    def has_main(self) -> bool:
+        return any(
+            source.report_type == REPORT_WEEKLY and source.report_variant == "основной"
+            for source in self.sources
+        )
+
+    @property
+    def has_buyout_notice(self) -> bool:
+        return any(source.report_type == REPORT_BUYOUT_NOTICE for source in self.sources)
+
+    @property
     def period_start(self) -> date | None:
         dates = [source.period_start for source in self.sources if source.period_start is not None]
         return min(dates) if dates else None
@@ -52,6 +66,46 @@ class ImportSession:
 
     def import_notices(self) -> list[ImportNotice]:
         notices: list[ImportNotice] = []
+        if not self.has_main:
+            notices.append(
+                ImportNotice(
+                    NOTICE_MISSING_MAIN,
+                    "Не загружен основной еженедельный детализированный отчет WB.",
+                    True,
+                )
+            )
+        buyout_numbers = {
+            source.report_number
+            for source in self.sources
+            if source.report_type == REPORT_WEEKLY and source.report_variant == "по выкупам"
+        }
+        notice_numbers = {
+            source.report_number
+            for source in self.sources
+            if source.report_type == REPORT_BUYOUT_NOTICE
+        }
+        missing_notices = sorted(buyout_numbers - notice_numbers)
+        orphan_notices = sorted(notice_numbers - buyout_numbers)
+        if missing_notices:
+            notices.append(
+                ImportNotice(
+                    NOTICE_MISSING_BUYOUT_NOTICE,
+                    "Не загружено уведомление о выкупе XLSX для отчета №"
+                    + ", №".join(missing_notices)
+                    + ".",
+                    True,
+                )
+            )
+        if orphan_notices:
+            notices.append(
+                ImportNotice(
+                    NOTICE_ORPHAN_BUYOUT_NOTICE,
+                    "Уведомление о выкупе №"
+                    + ", №".join(orphan_notices)
+                    + " загружено без соответствующего детализированного отчета по выкупам.",
+                    True,
+                )
+            )
         periods = {
             (source.period_start, source.period_end)
             for source in self.sources
@@ -424,6 +478,38 @@ def split_import_sources(sources: list[ParsedSource]) -> list[ImportSession]:
         )
         for _period, items in sorted(grouped.items())
     ]
+    notices = [source for source in sources if source.report_type == REPORT_BUYOUT_NOTICE]
+    for notice in notices:
+        matching = [
+            session
+            for session in sessions
+            if any(
+                source.report_type == REPORT_WEEKLY
+                and source.report_variant == "по выкупам"
+                and source.report_number == notice.report_number
+                for source in session.sources
+            )
+        ]
+        if len(matching) == 1:
+            matching[0].sources.append(notice)
+            continue
+        same_period = [
+            session
+            for session in sessions
+            if session.period_start == notice.period_start and session.period_end == notice.period_end
+        ]
+        if len(same_period) == 1:
+            same_period[0].sources.append(notice)
+        else:
+            sessions.append(ImportSession(sources=[notice], unknown_products=[]))
+    for session in sessions:
+        session.sources.sort(
+            key=lambda item: (
+                0 if item.report_variant == "основной" else 1 if item.report_variant == "по выкупам" else 2,
+                item.path.name.casefold(),
+            )
+        )
+    sessions.sort(key=_session_sort_key)
     return sessions
 
 

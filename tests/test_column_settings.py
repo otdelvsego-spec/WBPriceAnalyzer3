@@ -20,7 +20,7 @@ class ColumnSettingsTests(unittest.TestCase):
         self.assertEqual(preferences, default_column_preferences())
         self.assertEqual(
             visible_column_ids(preferences),
-            tuple(column_id for column_id, _heading, _width in OVERVIEW_COLUMN_SPECS),
+            visible_column_ids(default_column_preferences()),
         )
 
     def test_saved_order_visibility_and_new_columns_are_preserved(self) -> None:
