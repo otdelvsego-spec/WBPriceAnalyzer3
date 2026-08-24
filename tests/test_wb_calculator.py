@@ -87,13 +87,15 @@ class WBCalculatorTests(unittest.TestCase):
         self.assertEqual(row.logistics_cost, -100)
         self.assertEqual(row.loyalty_compensation, 30)
         self.assertEqual(row.carrier_reimbursement, 100)
-        self.assertEqual(row.financial_result, 630)
+        # Loyalty compensation remains visible analytically, but is already
+        # included by WB in the sale/payout chain and is not added twice.
+        self.assertEqual(row.financial_result, 600)
         self.assertEqual(row.main_revenue_total, 800)
         self.assertEqual(row.taxable_income, 800)
-        self.assertEqual(row.net_profit(0.06), 482)
+        self.assertEqual(row.net_profit(0.06), 452)
         self.assertEqual(calculation.unallocated_total, -50)
         self.assertEqual(calculation.unallocated["Хранение"], (1, -50))
-        self.assertEqual(calculation.totals()["net_profit"], 432)
+        self.assertEqual(calculation.totals()["net_profit"], 402)
 
     def test_article_expense_is_kept_even_without_sales(self) -> None:
         source = ParsedSource(
@@ -137,7 +139,17 @@ class WBCalculatorTests(unittest.TestCase):
             ],
         )
         buyout_rows = [
-            operation(2, "Продажа", document="Продажа", quantity=3, retail=3000, realized=2400, payout=1800, source_name="buyout.xlsx"),
+            operation(
+                2,
+                "Продажа",
+                document="Продажа",
+                quantity=3,
+                retail=3000,
+                realized=2400,
+                payout=1800,
+                loyalty_compensation=30,
+                source_name="buyout.xlsx",
+            ),
             operation(3, "Возврат", document="Возврат", quantity=1, retail=1000, realized=800, payout=600, source_name="buyout.xlsx"),
             operation(4, "Логистика", logistics=800, source_name="buyout.xlsx"),
         ]
@@ -171,6 +183,7 @@ class WBCalculatorTests(unittest.TestCase):
         self.assertEqual(result.buyout_revenue_total, 1000)
         self.assertEqual(result.taxable_income, 1800)
         self.assertEqual(result.financial_result, 1600)
+        self.assertEqual(result.loyalty_compensation, 30)
         self.assertEqual(result.cost_sold, 400)
         self.assertEqual(result.net_profit(0.06), 1092)
         self.assertEqual(calculation.buyout_control_warnings, [])

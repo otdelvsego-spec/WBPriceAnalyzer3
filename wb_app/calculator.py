@@ -171,7 +171,6 @@ def _buyout_extra_amount(row: AccrualRow) -> float:
         - row.acceptance
         - row.commission_adjustment
         - row.deductions
-        + sign * row.loyalty_compensation
         - sign * row.loyalty_fee
         - sign * row.loyalty_points
         - row.payout_fee

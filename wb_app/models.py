@@ -88,7 +88,13 @@ class AccrualRow:
 
     @property
     def amount(self) -> float:
-        """Net cash impact before tax and cost of goods."""
+        """Net cash impact before tax and cost of goods.
+
+        WB exposes the loyalty-discount compensation as a separate analytical
+        column/row, but includes it in the sale amount used to form the seller
+        payout.  Adding the field here would therefore count the same
+        compensation twice.
+        """
         sign = -1.0 if self.document_type.strip().casefold() == "возврат" else 1.0
         return (
             sign * self.seller_payout
@@ -98,7 +104,6 @@ class AccrualRow:
             - self.acceptance
             - self.commission_adjustment
             - self.deductions
-            + sign * self.loyalty_compensation
             - sign * self.loyalty_fee
             - sign * self.loyalty_points
             - self.payout_fee
